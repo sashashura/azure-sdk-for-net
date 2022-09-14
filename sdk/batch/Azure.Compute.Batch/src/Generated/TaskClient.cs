@@ -37,220 +37,379 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Initializes a new instance of TaskClient. </summary>
+        /// <param name="clientDiagnostics"> The handler for diagnostic messaging in the client. </param>
+        /// <param name="pipeline"> The HTTP pipeline for sending and receiving REST requests and responses. </param>
+        /// <param name="tokenCredential"> The token credential to copy. </param>
         /// <param name="batchUrl"> The base URL for all Azure Batch service requests. </param>
-        /// <param name="credential"> A credential used to authenticate to an Azure Service. </param>
-        /// <param name="options"> The options for configuring the client. </param>
-        /// <exception cref="ArgumentNullException"> <paramref name="batchUrl"/> or <paramref name="credential"/> is null. </exception>
-        public TaskClient(string batchUrl, TokenCredential credential, AzureBatchClientOptions options = null)
+        /// <param name="apiVersion"> Api Version. </param>
+        internal TaskClient(ClientDiagnostics clientDiagnostics, HttpPipeline pipeline, TokenCredential tokenCredential, string batchUrl, string apiVersion)
         {
-            Argument.AssertNotNull(batchUrl, nameof(batchUrl));
-            Argument.AssertNotNull(credential, nameof(credential));
-            options ??= new AzureBatchClientOptions();
-
-            ClientDiagnostics = new ClientDiagnostics(options);
-            _tokenCredential = credential;
-            _pipeline = HttpPipelineBuilder.Build(options, Array.Empty<HttpPipelinePolicy>(), new HttpPipelinePolicy[] { new BearerTokenAuthenticationPolicy(_tokenCredential, AuthorizationScopes) }, new ResponseClassifier());
+            ClientDiagnostics = clientDiagnostics;
+            _pipeline = pipeline;
+            _tokenCredential = tokenCredential;
             _batchUrl = batchUrl;
-            _apiVersion = options.Version;
+            _apiVersion = apiVersion;
         }
 
-        /// <summary> The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time. </summary>
+        /// <summary> Adds a Task to the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job to which the Task is to be added. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call AddAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {};
+        /// 
+        /// Response response = await client.AddAsync("<jobId>", RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call AddAsync with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     id = "<id>",
+        ///     displayName = "<displayName>",
+        ///     exitConditions = new {
+        ///         exitCodes = new[] {
+        ///             new {
+        ///                 code = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         exitCodeRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         preProcessingError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         fileUploadError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         default = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///     },
+        ///     commandLine = "<commandLine>",
+        ///     containerSettings = new {
+        ///         containerRunOptions = "<containerRunOptions>",
+        ///         imageName = "<imageName>",
+        ///         registry = new {
+        ///             username = "<username>",
+        ///             password = "<password>",
+        ///             registryServer = "<registryServer>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         },
+        ///         workingDirectory = "taskWorkingDirectory",
+        ///     },
+        ///     resourceFiles = new[] {
+        ///         new {
+        ///             autoStorageContainerName = "<autoStorageContainerName>",
+        ///             storageContainerUrl = "<storageContainerUrl>",
+        ///             httpUrl = "<httpUrl>",
+        ///             blobPrefix = "<blobPrefix>",
+        ///             filePath = "<filePath>",
+        ///             fileMode = "<fileMode>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         }
+        ///     },
+        ///     outputFiles = new[] {
+        ///         new {
+        ///             filePattern = "<filePattern>",
+        ///             destination = new {
+        ///                 container = new {
+        ///                     path = "<path>",
+        ///                     containerUrl = "<containerUrl>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                     uploadHeaders = new[] {
+        ///                         new {
+        ///                             name = "<name>",
+        ///                             value = "<value>",
+        ///                         }
+        ///                     },
+        ///                 },
+        ///             },
+        ///             uploadOptions = new {
+        ///                 uploadCondition = "tasksuccess",
+        ///             },
+        ///         }
+        ///     },
+        ///     environmentSettings = new[] {
+        ///         new {
+        ///             name = "<name>",
+        ///             value = "<value>",
+        ///         }
+        ///     },
+        ///     affinityInfo = new {
+        ///         affinityId = "<affinityId>",
+        ///     },
+        ///     constraints = new {
+        ///         maxWallClockTime = PT1H23M45S,
+        ///         retentionTime = PT1H23M45S,
+        ///         maxTaskRetryCount = 1234,
+        ///     },
+        ///     requiredSlots = 1234,
+        ///     userIdentity = new {
+        ///         username = "<username>",
+        ///         autoUser = new {
+        ///             scope = "task",
+        ///             elevationLevel = "nonadmin",
+        ///         },
+        ///     },
+        ///     multiInstanceSettings = new {
+        ///         numberOfInstances = 1234,
+        ///         coordinationCommandLine = "<coordinationCommandLine>",
+        ///         commonResourceFiles = new[] {
+        ///             new {
+        ///                 autoStorageContainerName = "<autoStorageContainerName>",
+        ///                 storageContainerUrl = "<storageContainerUrl>",
+        ///                 httpUrl = "<httpUrl>",
+        ///                 blobPrefix = "<blobPrefix>",
+        ///                 filePath = "<filePath>",
+        ///                 fileMode = "<fileMode>",
+        ///                 identityReference = new {
+        ///                     resourceId = "<resourceId>",
+        ///                 },
+        ///             }
+        ///         },
+        ///     },
+        ///     dependsOn = new {
+        ///         taskIds = new[] {
+        ///             "<String>"
+        ///         },
+        ///         taskIdRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///             }
+        ///         },
+        ///     },
+        ///     applicationPackageReferences = new[] {
+        ///         new {
+        ///             applicationId = "<applicationId>",
+        ///             version = "<version>",
+        ///         }
+        ///     },
+        ///     authenticationTokenSettings = new {
+        ///         access = new[] {
+        ///             "<String>"
+        ///         },
+        ///     },
+        /// };
+        /// 
+        /// Response response = await client.AddAsync("<jobId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time.
+        /// 
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number (required),
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         } (required)
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required),
-        ///         exitOptions: ExitOptions (required)
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string (required),
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string (required),
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string (required),
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string (required),
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       } (required),
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition (required)
-        ///       } (required)
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string (required),
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string (required)
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory (required),
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number (required),
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number (required),
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string (required),
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string (required),
-        ///     startTime: string (ISO 8601 Format) (required),
-        ///     lastUpdateTime: string (ISO 8601 Format) (required),
-        ///     userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///     wallClockTime: TaskStatisticsWallClockTime (required),
-        ///     readIOps: number (required),
-        ///     writeIOps: number (required),
-        ///     readIOGiB: number (required),
-        ///     writeIOGiB: number (required),
-        ///     waitTime: TaskStatisticsWaitTime (required)
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required)
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string (required),
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -274,203 +433,365 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time. </summary>
+        /// <summary> Adds a Task to the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job to which the Task is to be added. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Add with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {};
+        /// 
+        /// Response response = client.Add("<jobId>", RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Add with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     id = "<id>",
+        ///     displayName = "<displayName>",
+        ///     exitConditions = new {
+        ///         exitCodes = new[] {
+        ///             new {
+        ///                 code = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         exitCodeRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         preProcessingError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         fileUploadError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         default = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///     },
+        ///     commandLine = "<commandLine>",
+        ///     containerSettings = new {
+        ///         containerRunOptions = "<containerRunOptions>",
+        ///         imageName = "<imageName>",
+        ///         registry = new {
+        ///             username = "<username>",
+        ///             password = "<password>",
+        ///             registryServer = "<registryServer>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         },
+        ///         workingDirectory = "taskWorkingDirectory",
+        ///     },
+        ///     resourceFiles = new[] {
+        ///         new {
+        ///             autoStorageContainerName = "<autoStorageContainerName>",
+        ///             storageContainerUrl = "<storageContainerUrl>",
+        ///             httpUrl = "<httpUrl>",
+        ///             blobPrefix = "<blobPrefix>",
+        ///             filePath = "<filePath>",
+        ///             fileMode = "<fileMode>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         }
+        ///     },
+        ///     outputFiles = new[] {
+        ///         new {
+        ///             filePattern = "<filePattern>",
+        ///             destination = new {
+        ///                 container = new {
+        ///                     path = "<path>",
+        ///                     containerUrl = "<containerUrl>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                     uploadHeaders = new[] {
+        ///                         new {
+        ///                             name = "<name>",
+        ///                             value = "<value>",
+        ///                         }
+        ///                     },
+        ///                 },
+        ///             },
+        ///             uploadOptions = new {
+        ///                 uploadCondition = "tasksuccess",
+        ///             },
+        ///         }
+        ///     },
+        ///     environmentSettings = new[] {
+        ///         new {
+        ///             name = "<name>",
+        ///             value = "<value>",
+        ///         }
+        ///     },
+        ///     affinityInfo = new {
+        ///         affinityId = "<affinityId>",
+        ///     },
+        ///     constraints = new {
+        ///         maxWallClockTime = PT1H23M45S,
+        ///         retentionTime = PT1H23M45S,
+        ///         maxTaskRetryCount = 1234,
+        ///     },
+        ///     requiredSlots = 1234,
+        ///     userIdentity = new {
+        ///         username = "<username>",
+        ///         autoUser = new {
+        ///             scope = "task",
+        ///             elevationLevel = "nonadmin",
+        ///         },
+        ///     },
+        ///     multiInstanceSettings = new {
+        ///         numberOfInstances = 1234,
+        ///         coordinationCommandLine = "<coordinationCommandLine>",
+        ///         commonResourceFiles = new[] {
+        ///             new {
+        ///                 autoStorageContainerName = "<autoStorageContainerName>",
+        ///                 storageContainerUrl = "<storageContainerUrl>",
+        ///                 httpUrl = "<httpUrl>",
+        ///                 blobPrefix = "<blobPrefix>",
+        ///                 filePath = "<filePath>",
+        ///                 fileMode = "<fileMode>",
+        ///                 identityReference = new {
+        ///                     resourceId = "<resourceId>",
+        ///                 },
+        ///             }
+        ///         },
+        ///     },
+        ///     dependsOn = new {
+        ///         taskIds = new[] {
+        ///             "<String>"
+        ///         },
+        ///         taskIdRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///             }
+        ///         },
+        ///     },
+        ///     applicationPackageReferences = new[] {
+        ///         new {
+        ///             applicationId = "<applicationId>",
+        ///             version = "<version>",
+        ///         }
+        ///     },
+        ///     authenticationTokenSettings = new {
+        ///         access = new[] {
+        ///             "<String>"
+        ///         },
+        ///     },
+        /// };
+        /// 
+        /// Response response = client.Add("<jobId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time.
+        /// 
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number (required),
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         } (required)
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required),
-        ///         exitOptions: ExitOptions (required)
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string (required),
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string (required),
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string (required),
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string (required),
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       } (required),
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition (required)
-        ///       } (required)
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string (required),
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string (required)
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory (required),
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number (required),
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number (required),
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string (required),
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string (required),
-        ///     startTime: string (ISO 8601 Format) (required),
-        ///     lastUpdateTime: string (ISO 8601 Format) (required),
-        ///     userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///     wallClockTime: TaskStatisticsWallClockTime (required),
-        ///     readIOps: number (required),
-        ///     writeIOps: number (required),
-        ///     readIOGiB: number (required),
-        ///     writeIOGiB: number (required),
-        ///     waitTime: TaskStatisticsWaitTime (required)
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required)
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string (required),
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -494,233 +815,419 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> Note that each Task must have a unique ID. The Batch service may not return the results for each Task in the same order the Tasks were submitted in this request. If the server times out or the connection is closed during the request, the request may have been partially or fully processed, or not at all. In such cases, the user should re-issue the request. Note that it is up to the user to correctly handle failures when re-issuing a request. For example, you should use the same Task IDs during a retry so that if the prior operation succeeded, the retry will not create extra Tasks unexpectedly. If the response contains any Tasks which failed to add, a client can retry the request. In a retry, it is most efficient to resubmit only Tasks that failed to add, and to omit Tasks that were successfully added on the first attempt. The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time. </summary>
+        /// <summary> Adds a collection of Tasks to the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job to which the Task collection is to be added. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call AddCollectionAsync with required parameters and request content, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     value = new[] {
+        ///         new {}
+        ///     },
+        /// };
+        /// 
+        /// Response response = await client.AddCollectionAsync("<jobId>", RequestContent.Create(data));
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call AddCollectionAsync with all parameters and request content, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     value = new[] {
+        ///         new {
+        ///             id = "<id>",
+        ///             displayName = "<displayName>",
+        ///             exitConditions = new {
+        ///                 exitCodes = new[] {
+        ///                     new {
+        ///                         code = 1234,
+        ///                         exitOptions = new {
+        ///                             jobAction = "none",
+        ///                             dependencyAction = "satisfy",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///                 exitCodeRanges = new[] {
+        ///                     new {
+        ///                         start = 1234,
+        ///                         end = 1234,
+        ///                         exitOptions = new {
+        ///                             jobAction = "none",
+        ///                             dependencyAction = "satisfy",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///                 preProcessingError = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///                 fileUploadError = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///                 default = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             },
+        ///             commandLine = "<commandLine>",
+        ///             containerSettings = new {
+        ///                 containerRunOptions = "<containerRunOptions>",
+        ///                 imageName = "<imageName>",
+        ///                 registry = new {
+        ///                     username = "<username>",
+        ///                     password = "<password>",
+        ///                     registryServer = "<registryServer>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                 },
+        ///                 workingDirectory = "taskWorkingDirectory",
+        ///             },
+        ///             resourceFiles = new[] {
+        ///                 new {
+        ///                     autoStorageContainerName = "<autoStorageContainerName>",
+        ///                     storageContainerUrl = "<storageContainerUrl>",
+        ///                     httpUrl = "<httpUrl>",
+        ///                     blobPrefix = "<blobPrefix>",
+        ///                     filePath = "<filePath>",
+        ///                     fileMode = "<fileMode>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                 }
+        ///             },
+        ///             outputFiles = new[] {
+        ///                 new {
+        ///                     filePattern = "<filePattern>",
+        ///                     destination = new {
+        ///                         container = new {
+        ///                             path = "<path>",
+        ///                             containerUrl = "<containerUrl>",
+        ///                             identityReference = new {
+        ///                                 resourceId = "<resourceId>",
+        ///                             },
+        ///                             uploadHeaders = new[] {
+        ///                                 new {
+        ///                                     name = "<name>",
+        ///                                     value = "<value>",
+        ///                                 }
+        ///                             },
+        ///                         },
+        ///                     },
+        ///                     uploadOptions = new {
+        ///                         uploadCondition = "tasksuccess",
+        ///                     },
+        ///                 }
+        ///             },
+        ///             environmentSettings = new[] {
+        ///                 new {
+        ///                     name = "<name>",
+        ///                     value = "<value>",
+        ///                 }
+        ///             },
+        ///             affinityInfo = new {
+        ///                 affinityId = "<affinityId>",
+        ///             },
+        ///             constraints = new {
+        ///                 maxWallClockTime = PT1H23M45S,
+        ///                 retentionTime = PT1H23M45S,
+        ///                 maxTaskRetryCount = 1234,
+        ///             },
+        ///             requiredSlots = 1234,
+        ///             userIdentity = new {
+        ///                 username = "<username>",
+        ///                 autoUser = new {
+        ///                     scope = "task",
+        ///                     elevationLevel = "nonadmin",
+        ///                 },
+        ///             },
+        ///             multiInstanceSettings = new {
+        ///                 numberOfInstances = 1234,
+        ///                 coordinationCommandLine = "<coordinationCommandLine>",
+        ///                 commonResourceFiles = new[] {
+        ///                     new {
+        ///                         autoStorageContainerName = "<autoStorageContainerName>",
+        ///                         storageContainerUrl = "<storageContainerUrl>",
+        ///                         httpUrl = "<httpUrl>",
+        ///                         blobPrefix = "<blobPrefix>",
+        ///                         filePath = "<filePath>",
+        ///                         fileMode = "<fileMode>",
+        ///                         identityReference = new {
+        ///                             resourceId = "<resourceId>",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///             },
+        ///             dependsOn = new {
+        ///                 taskIds = new[] {
+        ///                     "<String>"
+        ///                 },
+        ///                 taskIdRanges = new[] {
+        ///                     new {
+        ///                         start = 1234,
+        ///                         end = 1234,
+        ///                     }
+        ///                 },
+        ///             },
+        ///             applicationPackageReferences = new[] {
+        ///                 new {
+        ///                     applicationId = "<applicationId>",
+        ///                     version = "<version>",
+        ///                 }
+        ///             },
+        ///             authenticationTokenSettings = new {
+        ///                 access = new[] {
+        ///                     "<String>"
+        ///                 },
+        ///             },
+        ///         }
+        ///     },
+        /// };
+        /// 
+        /// Response response = await client.AddCollectionAsync("<jobId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("status").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("taskId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("eTag").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("lastModified").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("location").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("message").GetProperty("lang").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("message").GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("values")[0].GetProperty("key").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("values")[0].GetProperty("value").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Note that each Task must have a unique ID. The Batch service may not return the results for each Task in the same order the Tasks were submitted in this request. If the server times out or the connection is closed during the request, the request may have been partially or fully processed, or not at all. In such cases, the user should re-issue the request. Note that it is up to the user to correctly handle failures when re-issuing a request. For example, you should use the same Task IDs during a retry so that if the prior operation succeeded, the retry will not create extra Tasks unexpectedly. If the response contains any Tasks which failed to add, a client can retry the request. In a retry, it is most efficient to resubmit only Tasks that failed to add, and to omit Tasks that were successfully added on the first attempt. The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time.
+        /// 
+        /// Below is the JSON schema for the request and response payloads.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>TaskAddCollectionParameter</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       url: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       creationTime: string (ISO 8601 Format),
+        ///       id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///       displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///       url: string, # Optional. The URL of the Task.
+        ///       eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///       lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///       creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///       exitConditions: {
         ///         exitCodes: [
         ///           {
-        ///             code: number (required),
+        ///             code: number, # Required. A process exit code.
         ///             exitOptions: {
-        ///               jobAction: JobAction,
-        ///               dependencyAction: DependencyAction
-        ///             } (required)
+        ///               jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///               dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///             }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///           }
-        ///         ],
+        ///         ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///         exitCodeRanges: [
         ///           {
-        ///             start: number (required),
-        ///             end: number (required),
-        ///             exitOptions: ExitOptions (required)
+        ///             start: number, # Required. The first exit code in the range.
+        ///             end: number, # Required. The last exit code in the range.
+        ///             exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///           }
-        ///         ],
-        ///         preProcessingError: ExitOptions,
-        ///         fileUploadError: ExitOptions,
-        ///         default: ExitOptions
-        ///       },
-        ///       state: TaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: TaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       commandLine: string,
+        ///         ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///         preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///         fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///         default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///       }, # Optional. How the Batch service should respond when the Task completes.
+        ///       state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///       stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///       previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///       previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///       commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///       containerSettings: {
-        ///         containerRunOptions: string,
-        ///         imageName: string (required),
+        ///         containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///         imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///         registry: {
-        ///           username: string,
-        ///           password: string,
-        ///           registryServer: string,
+        ///           username: string, # Optional. The user name to log into the registry server.
+        ///           password: string, # Optional. The password to log into the registry server.
+        ///           registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///           identityReference: {
-        ///             resourceId: string
-        ///           }
-        ///         },
-        ///         workingDirectory: ContainerWorkingDirectory
-        ///       },
+        ///             resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///           }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///         }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///         workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///       }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///       resourceFiles: [
         ///         {
-        ///           autoStorageContainerName: string,
-        ///           storageContainerUrl: string,
-        ///           httpUrl: string,
-        ///           blobPrefix: string,
-        ///           filePath: string,
-        ///           fileMode: string,
-        ///           identityReference: ComputeNodeIdentityReference
+        ///           autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///           storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///           httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///           blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///           filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///           fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///         }
-        ///       ],
+        ///       ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///       outputFiles: [
         ///         {
-        ///           filePattern: string (required),
+        ///           filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///           destination: {
         ///             container: {
-        ///               path: string,
-        ///               containerUrl: string (required),
-        ///               identityReference: ComputeNodeIdentityReference,
+        ///               path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///               containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///               identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///               uploadHeaders: [
         ///                 {
-        ///                   name: string (required),
-        ///                   value: string
+        ///                   name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///                   value: string, # Optional. The value of the header to be used while uploading output files
         ///                 }
-        ///               ]
-        ///             }
-        ///           } (required),
+        ///               ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///             }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///           }, # Required. The destination to which a file should be uploaded.
         ///           uploadOptions: {
-        ///             uploadCondition: OutputFileUploadCondition (required)
-        ///           } (required)
+        ///             uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///           }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///         }
-        ///       ],
+        ///       ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///       environmentSettings: [
         ///         {
-        ///           name: string (required),
-        ///           value: string
+        ///           name: string, # Required. The name of the environment variable.
+        ///           value: string, # Optional. The value of the environment variable.
         ///         }
-        ///       ],
+        ///       ], # Optional. A list of environment variable settings for the Task.
         ///       affinityInfo: {
-        ///         affinityId: string (required)
-        ///       },
+        ///         affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///       }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///       constraints: {
-        ///         maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///         retentionTime: TaskConstraintsRetentionTime,
-        ///         maxTaskRetryCount: number
-        ///       },
-        ///       requiredSlots: number,
+        ///         maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///         retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///         maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///       }, # Optional. Execution constraints to apply to a Task.
+        ///       requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///       userIdentity: {
-        ///         username: string,
+        ///         username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///         autoUser: {
-        ///           scope: AutoUserScope,
-        ///           elevationLevel: ElevationLevel
-        ///         }
-        ///       },
+        ///           scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///           elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///         }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///       }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///       executionInfo: {
-        ///         startTime: string (ISO 8601 Format),
-        ///         endTime: string (ISO 8601 Format),
-        ///         exitCode: number,
+        ///         startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///         endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///         exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///         containerInfo: {
-        ///           containerId: string,
-        ///           state: string,
-        ///           error: string
-        ///         },
+        ///           containerId: string, # Optional. The ID of the container.
+        ///           state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///           error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///         }, # Optional. This property is set only if the Task runs in a container context.
         ///         failureInfo: {
-        ///           category: ErrorCategory (required),
-        ///           code: string,
-        ///           message: string,
+        ///           category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///           code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///           message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///           details: [
         ///             {
-        ///               name: string,
-        ///               value: string
+        ///               name: string, # Optional. The name in the name-value pair.
+        ///               value: string, # Optional. The value in the name-value pair.
         ///             }
-        ///           ]
-        ///         },
-        ///         retryCount: number (required),
-        ///         lastRetryTime: string (ISO 8601 Format),
-        ///         requeueCount: number (required),
-        ///         lastRequeueTime: string (ISO 8601 Format),
-        ///         result: TaskExecutionResult
-        ///       },
+        ///           ], # Optional. A list of additional details related to the error.
+        ///         }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///         retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///         lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///         requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///         lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///         result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///       }, # Optional. Information about the execution of a Task.
         ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
+        ///         affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///         nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///         poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///         nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///         taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///         taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///       }, # Optional. Information about the Compute Node on which a Task ran.
         ///       multiInstanceSettings: {
-        ///         numberOfInstances: number,
-        ///         coordinationCommandLine: string (required),
-        ///         commonResourceFiles: [ResourceFile]
-        ///       },
+        ///         numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///         coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///         commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///       }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///       stats: {
-        ///         url: string (required),
-        ///         startTime: string (ISO 8601 Format) (required),
-        ///         lastUpdateTime: string (ISO 8601 Format) (required),
-        ///         userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///         kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///         wallClockTime: TaskStatisticsWallClockTime (required),
-        ///         readIOps: number (required),
-        ///         writeIOps: number (required),
-        ///         readIOGiB: number (required),
-        ///         writeIOGiB: number (required),
-        ///         waitTime: TaskStatisticsWaitTime (required)
-        ///       },
+        ///         url: string, # Required. The URL of the statistics.
+        ///         startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///         lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///         userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///         kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///         wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///         readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///         writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///         readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///         writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///         waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///       }, # Optional. Resource usage statistics for a Task.
         ///       dependsOn: {
-        ///         taskIds: [string],
+        ///         taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///         taskIdRanges: [
         ///           {
-        ///             start: number (required),
-        ///             end: number (required)
+        ///             start: number, # Required. The first Task ID in the range.
+        ///             end: number, # Required. The last Task ID in the range.
         ///           }
-        ///         ]
-        ///       },
+        ///         ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///       }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///       applicationPackageReferences: [
         ///         {
-        ///           applicationId: string (required),
-        ///           version: string
+        ///           applicationId: string, # Required. The ID of the application to deploy.
+        ///           version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///         }
-        ///       ],
+        ///       ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///       authenticationTokenSettings: {
-        ///         access: [AccessScope]
-        ///       }
+        ///         access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///       }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         ///     }
-        ///   ] (required)
+        ///   ], # Required. The total serialized size of this collection must be less than 1MB. If it is greater than 1MB (for example if each Task has 100&apos;s of resource files or environment variables), the request will fail with code &apos;RequestBodyTooLarge&apos; and should be retried again with fewer Tasks.
         /// }
         /// </code>
-        /// Schema for <c>Response Body</c>:
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskAddCollectionResult</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       status: TaskAddStatus,
-        ///       taskId: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       location: string,
+        ///       status: &quot;success&quot; | &quot;clienterror&quot; | &quot;servererror&quot;, # Required. The status of the add Task request.
+        ///       taskId: string, # Required. The ID of the Task for which this is the result.
+        ///       eTag: string, # Optional. You can use this to detect whether the Task has changed between requests. In particular, you can be pass the ETag with an Update Task request to specify that your changes should take effect only if nobody else has modified the Job in the meantime.
+        ///       lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///       location: string, # Optional. The URL of the Task, if the Task was successfully added.
         ///       error: {
-        ///         code: string,
+        ///         code: string, # Optional. An identifier for the error. Codes are invariant and are intended to be consumed programmatically.
         ///         message: {
-        ///           lang: string,
-        ///           value: string
-        ///         },
+        ///           lang: string, # Optional. The language code of the error message
+        ///           value: string, # Optional. The text of the message.
+        ///         }, # Optional. An error message received in an Azure Batch error response.
         ///         values: [
         ///           {
-        ///             key: string,
-        ///             value: string
+        ///             key: string, # Optional. An identifier specifying the meaning of the Value property.
+        ///             value: string, # Optional. The additional information included with the error response.
         ///           }
-        ///         ]
-        ///       }
+        ///         ], # Optional. A collection of key-value pairs containing additional details about the error.
+        ///       }, # Optional. An error response received from the Azure Batch service.
         ///     }
-        ///   ]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   ], # Optional. The results of the add Task collection operation.
         /// }
         /// </code>
         /// 
@@ -744,233 +1251,419 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> Note that each Task must have a unique ID. The Batch service may not return the results for each Task in the same order the Tasks were submitted in this request. If the server times out or the connection is closed during the request, the request may have been partially or fully processed, or not at all. In such cases, the user should re-issue the request. Note that it is up to the user to correctly handle failures when re-issuing a request. For example, you should use the same Task IDs during a retry so that if the prior operation succeeded, the retry will not create extra Tasks unexpectedly. If the response contains any Tasks which failed to add, a client can retry the request. In a retry, it is most efficient to resubmit only Tasks that failed to add, and to omit Tasks that were successfully added on the first attempt. The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time. </summary>
+        /// <summary> Adds a collection of Tasks to the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job to which the Task collection is to be added. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call AddCollection with required parameters and request content, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     value = new[] {
+        ///         new {}
+        ///     },
+        /// };
+        /// 
+        /// Response response = client.AddCollection("<jobId>", RequestContent.Create(data));
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call AddCollection with all parameters and request content, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     value = new[] {
+        ///         new {
+        ///             id = "<id>",
+        ///             displayName = "<displayName>",
+        ///             exitConditions = new {
+        ///                 exitCodes = new[] {
+        ///                     new {
+        ///                         code = 1234,
+        ///                         exitOptions = new {
+        ///                             jobAction = "none",
+        ///                             dependencyAction = "satisfy",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///                 exitCodeRanges = new[] {
+        ///                     new {
+        ///                         start = 1234,
+        ///                         end = 1234,
+        ///                         exitOptions = new {
+        ///                             jobAction = "none",
+        ///                             dependencyAction = "satisfy",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///                 preProcessingError = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///                 fileUploadError = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///                 default = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             },
+        ///             commandLine = "<commandLine>",
+        ///             containerSettings = new {
+        ///                 containerRunOptions = "<containerRunOptions>",
+        ///                 imageName = "<imageName>",
+        ///                 registry = new {
+        ///                     username = "<username>",
+        ///                     password = "<password>",
+        ///                     registryServer = "<registryServer>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                 },
+        ///                 workingDirectory = "taskWorkingDirectory",
+        ///             },
+        ///             resourceFiles = new[] {
+        ///                 new {
+        ///                     autoStorageContainerName = "<autoStorageContainerName>",
+        ///                     storageContainerUrl = "<storageContainerUrl>",
+        ///                     httpUrl = "<httpUrl>",
+        ///                     blobPrefix = "<blobPrefix>",
+        ///                     filePath = "<filePath>",
+        ///                     fileMode = "<fileMode>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                 }
+        ///             },
+        ///             outputFiles = new[] {
+        ///                 new {
+        ///                     filePattern = "<filePattern>",
+        ///                     destination = new {
+        ///                         container = new {
+        ///                             path = "<path>",
+        ///                             containerUrl = "<containerUrl>",
+        ///                             identityReference = new {
+        ///                                 resourceId = "<resourceId>",
+        ///                             },
+        ///                             uploadHeaders = new[] {
+        ///                                 new {
+        ///                                     name = "<name>",
+        ///                                     value = "<value>",
+        ///                                 }
+        ///                             },
+        ///                         },
+        ///                     },
+        ///                     uploadOptions = new {
+        ///                         uploadCondition = "tasksuccess",
+        ///                     },
+        ///                 }
+        ///             },
+        ///             environmentSettings = new[] {
+        ///                 new {
+        ///                     name = "<name>",
+        ///                     value = "<value>",
+        ///                 }
+        ///             },
+        ///             affinityInfo = new {
+        ///                 affinityId = "<affinityId>",
+        ///             },
+        ///             constraints = new {
+        ///                 maxWallClockTime = PT1H23M45S,
+        ///                 retentionTime = PT1H23M45S,
+        ///                 maxTaskRetryCount = 1234,
+        ///             },
+        ///             requiredSlots = 1234,
+        ///             userIdentity = new {
+        ///                 username = "<username>",
+        ///                 autoUser = new {
+        ///                     scope = "task",
+        ///                     elevationLevel = "nonadmin",
+        ///                 },
+        ///             },
+        ///             multiInstanceSettings = new {
+        ///                 numberOfInstances = 1234,
+        ///                 coordinationCommandLine = "<coordinationCommandLine>",
+        ///                 commonResourceFiles = new[] {
+        ///                     new {
+        ///                         autoStorageContainerName = "<autoStorageContainerName>",
+        ///                         storageContainerUrl = "<storageContainerUrl>",
+        ///                         httpUrl = "<httpUrl>",
+        ///                         blobPrefix = "<blobPrefix>",
+        ///                         filePath = "<filePath>",
+        ///                         fileMode = "<fileMode>",
+        ///                         identityReference = new {
+        ///                             resourceId = "<resourceId>",
+        ///                         },
+        ///                     }
+        ///                 },
+        ///             },
+        ///             dependsOn = new {
+        ///                 taskIds = new[] {
+        ///                     "<String>"
+        ///                 },
+        ///                 taskIdRanges = new[] {
+        ///                     new {
+        ///                         start = 1234,
+        ///                         end = 1234,
+        ///                     }
+        ///                 },
+        ///             },
+        ///             applicationPackageReferences = new[] {
+        ///                 new {
+        ///                     applicationId = "<applicationId>",
+        ///                     version = "<version>",
+        ///                 }
+        ///             },
+        ///             authenticationTokenSettings = new {
+        ///                 access = new[] {
+        ///                     "<String>"
+        ///                 },
+        ///             },
+        ///         }
+        ///     },
+        /// };
+        /// 
+        /// Response response = client.AddCollection("<jobId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("status").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("taskId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("eTag").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("lastModified").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("location").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("message").GetProperty("lang").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("message").GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("values")[0].GetProperty("key").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("error").GetProperty("values")[0].GetProperty("value").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Note that each Task must have a unique ID. The Batch service may not return the results for each Task in the same order the Tasks were submitted in this request. If the server times out or the connection is closed during the request, the request may have been partially or fully processed, or not at all. In such cases, the user should re-issue the request. Note that it is up to the user to correctly handle failures when re-issuing a request. For example, you should use the same Task IDs during a retry so that if the prior operation succeeded, the retry will not create extra Tasks unexpectedly. If the response contains any Tasks which failed to add, a client can retry the request. In a retry, it is most efficient to resubmit only Tasks that failed to add, and to omit Tasks that were successfully added on the first attempt. The maximum lifetime of a Task from addition to completion is 180 days. If a Task has not completed within 180 days of being added it will be terminated by the Batch service and left in whatever state it was in at that time.
+        /// 
+        /// Below is the JSON schema for the request and response payloads.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>TaskAddCollectionParameter</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       url: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       creationTime: string (ISO 8601 Format),
+        ///       id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///       displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///       url: string, # Optional. The URL of the Task.
+        ///       eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///       lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///       creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///       exitConditions: {
         ///         exitCodes: [
         ///           {
-        ///             code: number (required),
+        ///             code: number, # Required. A process exit code.
         ///             exitOptions: {
-        ///               jobAction: JobAction,
-        ///               dependencyAction: DependencyAction
-        ///             } (required)
+        ///               jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///               dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///             }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///           }
-        ///         ],
+        ///         ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///         exitCodeRanges: [
         ///           {
-        ///             start: number (required),
-        ///             end: number (required),
-        ///             exitOptions: ExitOptions (required)
+        ///             start: number, # Required. The first exit code in the range.
+        ///             end: number, # Required. The last exit code in the range.
+        ///             exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///           }
-        ///         ],
-        ///         preProcessingError: ExitOptions,
-        ///         fileUploadError: ExitOptions,
-        ///         default: ExitOptions
-        ///       },
-        ///       state: TaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: TaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       commandLine: string,
+        ///         ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///         preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///         fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///         default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///       }, # Optional. How the Batch service should respond when the Task completes.
+        ///       state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///       stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///       previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///       previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///       commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///       containerSettings: {
-        ///         containerRunOptions: string,
-        ///         imageName: string (required),
+        ///         containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///         imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///         registry: {
-        ///           username: string,
-        ///           password: string,
-        ///           registryServer: string,
+        ///           username: string, # Optional. The user name to log into the registry server.
+        ///           password: string, # Optional. The password to log into the registry server.
+        ///           registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///           identityReference: {
-        ///             resourceId: string
-        ///           }
-        ///         },
-        ///         workingDirectory: ContainerWorkingDirectory
-        ///       },
+        ///             resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///           }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///         }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///         workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///       }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///       resourceFiles: [
         ///         {
-        ///           autoStorageContainerName: string,
-        ///           storageContainerUrl: string,
-        ///           httpUrl: string,
-        ///           blobPrefix: string,
-        ///           filePath: string,
-        ///           fileMode: string,
-        ///           identityReference: ComputeNodeIdentityReference
+        ///           autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///           storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///           httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///           blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///           filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///           fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///         }
-        ///       ],
+        ///       ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///       outputFiles: [
         ///         {
-        ///           filePattern: string (required),
+        ///           filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///           destination: {
         ///             container: {
-        ///               path: string,
-        ///               containerUrl: string (required),
-        ///               identityReference: ComputeNodeIdentityReference,
+        ///               path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///               containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///               identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///               uploadHeaders: [
         ///                 {
-        ///                   name: string (required),
-        ///                   value: string
+        ///                   name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///                   value: string, # Optional. The value of the header to be used while uploading output files
         ///                 }
-        ///               ]
-        ///             }
-        ///           } (required),
+        ///               ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///             }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///           }, # Required. The destination to which a file should be uploaded.
         ///           uploadOptions: {
-        ///             uploadCondition: OutputFileUploadCondition (required)
-        ///           } (required)
+        ///             uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///           }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///         }
-        ///       ],
+        ///       ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///       environmentSettings: [
         ///         {
-        ///           name: string (required),
-        ///           value: string
+        ///           name: string, # Required. The name of the environment variable.
+        ///           value: string, # Optional. The value of the environment variable.
         ///         }
-        ///       ],
+        ///       ], # Optional. A list of environment variable settings for the Task.
         ///       affinityInfo: {
-        ///         affinityId: string (required)
-        ///       },
+        ///         affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///       }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///       constraints: {
-        ///         maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///         retentionTime: TaskConstraintsRetentionTime,
-        ///         maxTaskRetryCount: number
-        ///       },
-        ///       requiredSlots: number,
+        ///         maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///         retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///         maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///       }, # Optional. Execution constraints to apply to a Task.
+        ///       requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///       userIdentity: {
-        ///         username: string,
+        ///         username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///         autoUser: {
-        ///           scope: AutoUserScope,
-        ///           elevationLevel: ElevationLevel
-        ///         }
-        ///       },
+        ///           scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///           elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///         }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///       }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///       executionInfo: {
-        ///         startTime: string (ISO 8601 Format),
-        ///         endTime: string (ISO 8601 Format),
-        ///         exitCode: number,
+        ///         startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///         endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///         exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///         containerInfo: {
-        ///           containerId: string,
-        ///           state: string,
-        ///           error: string
-        ///         },
+        ///           containerId: string, # Optional. The ID of the container.
+        ///           state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///           error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///         }, # Optional. This property is set only if the Task runs in a container context.
         ///         failureInfo: {
-        ///           category: ErrorCategory (required),
-        ///           code: string,
-        ///           message: string,
+        ///           category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///           code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///           message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///           details: [
         ///             {
-        ///               name: string,
-        ///               value: string
+        ///               name: string, # Optional. The name in the name-value pair.
+        ///               value: string, # Optional. The value in the name-value pair.
         ///             }
-        ///           ]
-        ///         },
-        ///         retryCount: number (required),
-        ///         lastRetryTime: string (ISO 8601 Format),
-        ///         requeueCount: number (required),
-        ///         lastRequeueTime: string (ISO 8601 Format),
-        ///         result: TaskExecutionResult
-        ///       },
+        ///           ], # Optional. A list of additional details related to the error.
+        ///         }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///         retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///         lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///         requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///         lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///         result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///       }, # Optional. Information about the execution of a Task.
         ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
+        ///         affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///         nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///         poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///         nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///         taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///         taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///       }, # Optional. Information about the Compute Node on which a Task ran.
         ///       multiInstanceSettings: {
-        ///         numberOfInstances: number,
-        ///         coordinationCommandLine: string (required),
-        ///         commonResourceFiles: [ResourceFile]
-        ///       },
+        ///         numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///         coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///         commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///       }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///       stats: {
-        ///         url: string (required),
-        ///         startTime: string (ISO 8601 Format) (required),
-        ///         lastUpdateTime: string (ISO 8601 Format) (required),
-        ///         userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///         kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///         wallClockTime: TaskStatisticsWallClockTime (required),
-        ///         readIOps: number (required),
-        ///         writeIOps: number (required),
-        ///         readIOGiB: number (required),
-        ///         writeIOGiB: number (required),
-        ///         waitTime: TaskStatisticsWaitTime (required)
-        ///       },
+        ///         url: string, # Required. The URL of the statistics.
+        ///         startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///         lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///         userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///         kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///         wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///         readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///         writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///         readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///         writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///         waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///       }, # Optional. Resource usage statistics for a Task.
         ///       dependsOn: {
-        ///         taskIds: [string],
+        ///         taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///         taskIdRanges: [
         ///           {
-        ///             start: number (required),
-        ///             end: number (required)
+        ///             start: number, # Required. The first Task ID in the range.
+        ///             end: number, # Required. The last Task ID in the range.
         ///           }
-        ///         ]
-        ///       },
+        ///         ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///       }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///       applicationPackageReferences: [
         ///         {
-        ///           applicationId: string (required),
-        ///           version: string
+        ///           applicationId: string, # Required. The ID of the application to deploy.
+        ///           version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///         }
-        ///       ],
+        ///       ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///       authenticationTokenSettings: {
-        ///         access: [AccessScope]
-        ///       }
+        ///         access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///       }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         ///     }
-        ///   ] (required)
+        ///   ], # Required. The total serialized size of this collection must be less than 1MB. If it is greater than 1MB (for example if each Task has 100&apos;s of resource files or environment variables), the request will fail with code &apos;RequestBodyTooLarge&apos; and should be retried again with fewer Tasks.
         /// }
         /// </code>
-        /// Schema for <c>Response Body</c>:
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskAddCollectionResult</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       status: TaskAddStatus,
-        ///       taskId: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       location: string,
+        ///       status: &quot;success&quot; | &quot;clienterror&quot; | &quot;servererror&quot;, # Required. The status of the add Task request.
+        ///       taskId: string, # Required. The ID of the Task for which this is the result.
+        ///       eTag: string, # Optional. You can use this to detect whether the Task has changed between requests. In particular, you can be pass the ETag with an Update Task request to specify that your changes should take effect only if nobody else has modified the Job in the meantime.
+        ///       lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///       location: string, # Optional. The URL of the Task, if the Task was successfully added.
         ///       error: {
-        ///         code: string,
+        ///         code: string, # Optional. An identifier for the error. Codes are invariant and are intended to be consumed programmatically.
         ///         message: {
-        ///           lang: string,
-        ///           value: string
-        ///         },
+        ///           lang: string, # Optional. The language code of the error message
+        ///           value: string, # Optional. The text of the message.
+        ///         }, # Optional. An error message received in an Azure Batch error response.
         ///         values: [
         ///           {
-        ///             key: string,
-        ///             value: string
+        ///             key: string, # Optional. An identifier specifying the meaning of the Value property.
+        ///             value: string, # Optional. The additional information included with the error response.
         ///           }
-        ///         ]
-        ///       }
+        ///         ], # Optional. A collection of key-value pairs containing additional details about the error.
+        ///       }, # Optional. An error response received from the Azure Batch service.
         ///     }
-        ///   ]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   ], # Optional. The results of the add Task collection operation.
         /// }
         /// </code>
         /// 
@@ -994,7 +1687,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> When a Task is deleted, all of the files in its directory on the Compute Node where it ran are also deleted (regardless of the retention time). For multi-instance Tasks, the delete Task operation applies synchronously to the primary task; subtasks and their files are then deleted asynchronously in the background. </summary>
+        /// <summary> Deletes a Task from the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job from which to delete the Task. </param>
         /// <param name="taskId"> The ID of the Task to delete. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -1002,27 +1695,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call DeleteAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = await client.DeleteAsync("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call DeleteAsync with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.DeleteAsync("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> When a Task is deleted, all of the files in its directory on the Compute Node where it ran are also deleted (regardless of the retention time). For multi-instance Tasks, the delete Task operation applies synchronously to the primary task; subtasks and their files are then deleted asynchronously in the background. </remarks>
         public virtual async Task<Response> DeleteAsync(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -1042,7 +1738,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> When a Task is deleted, all of the files in its directory on the Compute Node where it ran are also deleted (regardless of the retention time). For multi-instance Tasks, the delete Task operation applies synchronously to the primary task; subtasks and their files are then deleted asynchronously in the background. </summary>
+        /// <summary> Deletes a Task from the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job from which to delete the Task. </param>
         /// <param name="taskId"> The ID of the Task to delete. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -1050,27 +1746,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Delete with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = client.Delete("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Delete with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.Delete("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> When a Task is deleted, all of the files in its directory on the Compute Node where it ran are also deleted (regardless of the retention time). For multi-instance Tasks, the delete Task operation applies synchronously to the primary task; subtasks and their files are then deleted asynchronously in the background. </remarks>
         public virtual Response Delete(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -1090,7 +1789,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks. </summary>
+        /// <summary> Gets information about the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job that contains the Task. </param>
         /// <param name="taskId"> The ID of the Task to get information about. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -1100,196 +1799,313 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetTaskAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetTaskAsync("<jobId>", "<taskId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetTaskAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetTaskAsync("<jobId>", "<taskId>", "<select>", "<expand>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("eTag").ToString());
+        /// Console.WriteLine(result.GetProperty("lastModified").ToString());
+        /// Console.WriteLine(result.GetProperty("creationTime").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("start").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("end").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("commandLine").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("containerRunOptions").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("imageName").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("username").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("password").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("registryServer").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("workingDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("httpUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("blobPrefix").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("filePath").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("fileMode").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("filePattern").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("path").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("containerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("uploadOptions").GetProperty("uploadCondition").ToString());
+        /// Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("affinityInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("maxWallClockTime").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("retentionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("maxTaskRetryCount").ToString());
+        /// Console.WriteLine(result.GetProperty("requiredSlots").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("username").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("scope").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("elevationLevel").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("endTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("exitCode").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("containerId").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("error").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("category").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("retryCount").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRetryTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("requeueCount").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRequeueTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("result").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("numberOfInstances").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("coordinationCommandLine").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("httpUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("blobPrefix").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("filePath").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("fileMode").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("lastUpdateTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("userCPUTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("kernelCPUTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("wallClockTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("readIOps").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOps").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("readIOGiB").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOGiB").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("waitTime").ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIds")[0].ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("start").ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("end").ToString());
+        /// Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("applicationId").ToString());
+        /// Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("version").ToString());
+        /// Console.WriteLine(result.GetProperty("authenticationTokenSettings").GetProperty("access")[0].ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number,
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         }
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number,
-        ///         end: number,
-        ///         exitOptions: ExitOptions
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string,
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string,
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string,
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string,
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       },
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition
-        ///       }
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string,
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory,
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number,
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number,
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string,
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string,
-        ///     startTime: string (ISO 8601 Format),
-        ///     lastUpdateTime: string (ISO 8601 Format),
-        ///     userCPUTime: TaskStatisticsUserCPUTime,
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime,
-        ///     wallClockTime: TaskStatisticsWallClockTime,
-        ///     readIOps: number,
-        ///     writeIOps: number,
-        ///     readIOGiB: number,
-        ///     writeIOGiB: number,
-        ///     waitTime: TaskStatisticsWaitTime
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number,
-        ///         end: number
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string,
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -1313,7 +2129,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks. </summary>
+        /// <summary> Gets information about the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job that contains the Task. </param>
         /// <param name="taskId"> The ID of the Task to get information about. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -1323,196 +2139,313 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetTask with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetTask("<jobId>", "<taskId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetTask with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetTask("<jobId>", "<taskId>", "<select>", "<expand>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("eTag").ToString());
+        /// Console.WriteLine(result.GetProperty("lastModified").ToString());
+        /// Console.WriteLine(result.GetProperty("creationTime").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("start").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("end").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("jobAction").ToString());
+        /// Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("dependencyAction").ToString());
+        /// Console.WriteLine(result.GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("commandLine").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("containerRunOptions").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("imageName").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("username").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("password").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("registryServer").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("containerSettings").GetProperty("workingDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("httpUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("blobPrefix").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("filePath").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("fileMode").ToString());
+        /// Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("filePattern").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("path").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("containerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("uploadOptions").GetProperty("uploadCondition").ToString());
+        /// Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("affinityInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("maxWallClockTime").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("retentionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("constraints").GetProperty("maxTaskRetryCount").ToString());
+        /// Console.WriteLine(result.GetProperty("requiredSlots").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("username").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("scope").ToString());
+        /// Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("elevationLevel").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("endTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("exitCode").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("containerId").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("error").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("category").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("retryCount").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRetryTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("requeueCount").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRequeueTime").ToString());
+        /// Console.WriteLine(result.GetProperty("executionInfo").GetProperty("result").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("numberOfInstances").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("coordinationCommandLine").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("httpUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("blobPrefix").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("filePath").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("fileMode").ToString());
+        /// Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("lastUpdateTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("userCPUTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("kernelCPUTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("wallClockTime").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("readIOps").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOps").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("readIOGiB").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOGiB").ToString());
+        /// Console.WriteLine(result.GetProperty("stats").GetProperty("waitTime").ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIds")[0].ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("start").ToString());
+        /// Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("end").ToString());
+        /// Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("applicationId").ToString());
+        /// Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("version").ToString());
+        /// Console.WriteLine(result.GetProperty("authenticationTokenSettings").GetProperty("access")[0].ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number,
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         }
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number,
-        ///         end: number,
-        ///         exitOptions: ExitOptions
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string,
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string,
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string,
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string,
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       },
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition
-        ///       }
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string,
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory,
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number,
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number,
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string,
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string,
-        ///     startTime: string (ISO 8601 Format),
-        ///     lastUpdateTime: string (ISO 8601 Format),
-        ///     userCPUTime: TaskStatisticsUserCPUTime,
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime,
-        ///     wallClockTime: TaskStatisticsWallClockTime,
-        ///     readIOps: number,
-        ///     writeIOps: number,
-        ///     readIOGiB: number,
-        ///     writeIOGiB: number,
-        ///     waitTime: TaskStatisticsWaitTime
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number,
-        ///         end: number
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string,
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -1539,202 +2472,362 @@ namespace Azure.Compute.Batch
         /// <summary> Updates the properties of the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to update. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/>, <paramref name="taskId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call UpdateAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {};
+        /// 
+        /// Response response = await client.UpdateAsync("<jobId>", "<taskId>", RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call UpdateAsync with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     id = "<id>",
+        ///     displayName = "<displayName>",
+        ///     exitConditions = new {
+        ///         exitCodes = new[] {
+        ///             new {
+        ///                 code = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         exitCodeRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         preProcessingError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         fileUploadError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         default = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///     },
+        ///     commandLine = "<commandLine>",
+        ///     containerSettings = new {
+        ///         containerRunOptions = "<containerRunOptions>",
+        ///         imageName = "<imageName>",
+        ///         registry = new {
+        ///             username = "<username>",
+        ///             password = "<password>",
+        ///             registryServer = "<registryServer>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         },
+        ///         workingDirectory = "taskWorkingDirectory",
+        ///     },
+        ///     resourceFiles = new[] {
+        ///         new {
+        ///             autoStorageContainerName = "<autoStorageContainerName>",
+        ///             storageContainerUrl = "<storageContainerUrl>",
+        ///             httpUrl = "<httpUrl>",
+        ///             blobPrefix = "<blobPrefix>",
+        ///             filePath = "<filePath>",
+        ///             fileMode = "<fileMode>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         }
+        ///     },
+        ///     outputFiles = new[] {
+        ///         new {
+        ///             filePattern = "<filePattern>",
+        ///             destination = new {
+        ///                 container = new {
+        ///                     path = "<path>",
+        ///                     containerUrl = "<containerUrl>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                     uploadHeaders = new[] {
+        ///                         new {
+        ///                             name = "<name>",
+        ///                             value = "<value>",
+        ///                         }
+        ///                     },
+        ///                 },
+        ///             },
+        ///             uploadOptions = new {
+        ///                 uploadCondition = "tasksuccess",
+        ///             },
+        ///         }
+        ///     },
+        ///     environmentSettings = new[] {
+        ///         new {
+        ///             name = "<name>",
+        ///             value = "<value>",
+        ///         }
+        ///     },
+        ///     affinityInfo = new {
+        ///         affinityId = "<affinityId>",
+        ///     },
+        ///     constraints = new {
+        ///         maxWallClockTime = PT1H23M45S,
+        ///         retentionTime = PT1H23M45S,
+        ///         maxTaskRetryCount = 1234,
+        ///     },
+        ///     requiredSlots = 1234,
+        ///     userIdentity = new {
+        ///         username = "<username>",
+        ///         autoUser = new {
+        ///             scope = "task",
+        ///             elevationLevel = "nonadmin",
+        ///         },
+        ///     },
+        ///     multiInstanceSettings = new {
+        ///         numberOfInstances = 1234,
+        ///         coordinationCommandLine = "<coordinationCommandLine>",
+        ///         commonResourceFiles = new[] {
+        ///             new {
+        ///                 autoStorageContainerName = "<autoStorageContainerName>",
+        ///                 storageContainerUrl = "<storageContainerUrl>",
+        ///                 httpUrl = "<httpUrl>",
+        ///                 blobPrefix = "<blobPrefix>",
+        ///                 filePath = "<filePath>",
+        ///                 fileMode = "<fileMode>",
+        ///                 identityReference = new {
+        ///                     resourceId = "<resourceId>",
+        ///                 },
+        ///             }
+        ///         },
+        ///     },
+        ///     dependsOn = new {
+        ///         taskIds = new[] {
+        ///             "<String>"
+        ///         },
+        ///         taskIdRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///             }
+        ///         },
+        ///     },
+        ///     applicationPackageReferences = new[] {
+        ///         new {
+        ///             applicationId = "<applicationId>",
+        ///             version = "<version>",
+        ///         }
+        ///     },
+        ///     authenticationTokenSettings = new {
+        ///         access = new[] {
+        ///             "<String>"
+        ///         },
+        ///     },
+        /// };
+        /// 
+        /// Response response = await client.UpdateAsync("<jobId>", "<taskId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number (required),
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         } (required)
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required),
-        ///         exitOptions: ExitOptions (required)
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string (required),
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string (required),
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string (required),
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string (required),
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       } (required),
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition (required)
-        ///       } (required)
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string (required),
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string (required)
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory (required),
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number (required),
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number (required),
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string (required),
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string (required),
-        ///     startTime: string (ISO 8601 Format) (required),
-        ///     lastUpdateTime: string (ISO 8601 Format) (required),
-        ///     userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///     wallClockTime: TaskStatisticsWallClockTime (required),
-        ///     readIOps: number (required),
-        ///     writeIOps: number (required),
-        ///     readIOGiB: number (required),
-        ///     writeIOGiB: number (required),
-        ///     waitTime: TaskStatisticsWaitTime (required)
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required)
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string (required),
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -1762,202 +2855,362 @@ namespace Azure.Compute.Batch
         /// <summary> Updates the properties of the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to update. </param>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/>, <paramref name="taskId"/> or <paramref name="content"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Update with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {};
+        /// 
+        /// Response response = client.Update("<jobId>", "<taskId>", RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Update with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     id = "<id>",
+        ///     displayName = "<displayName>",
+        ///     exitConditions = new {
+        ///         exitCodes = new[] {
+        ///             new {
+        ///                 code = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         exitCodeRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///                 exitOptions = new {
+        ///                     jobAction = "none",
+        ///                     dependencyAction = "satisfy",
+        ///                 },
+        ///             }
+        ///         },
+        ///         preProcessingError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         fileUploadError = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///         default = new {
+        ///             jobAction = "none",
+        ///             dependencyAction = "satisfy",
+        ///         },
+        ///     },
+        ///     commandLine = "<commandLine>",
+        ///     containerSettings = new {
+        ///         containerRunOptions = "<containerRunOptions>",
+        ///         imageName = "<imageName>",
+        ///         registry = new {
+        ///             username = "<username>",
+        ///             password = "<password>",
+        ///             registryServer = "<registryServer>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         },
+        ///         workingDirectory = "taskWorkingDirectory",
+        ///     },
+        ///     resourceFiles = new[] {
+        ///         new {
+        ///             autoStorageContainerName = "<autoStorageContainerName>",
+        ///             storageContainerUrl = "<storageContainerUrl>",
+        ///             httpUrl = "<httpUrl>",
+        ///             blobPrefix = "<blobPrefix>",
+        ///             filePath = "<filePath>",
+        ///             fileMode = "<fileMode>",
+        ///             identityReference = new {
+        ///                 resourceId = "<resourceId>",
+        ///             },
+        ///         }
+        ///     },
+        ///     outputFiles = new[] {
+        ///         new {
+        ///             filePattern = "<filePattern>",
+        ///             destination = new {
+        ///                 container = new {
+        ///                     path = "<path>",
+        ///                     containerUrl = "<containerUrl>",
+        ///                     identityReference = new {
+        ///                         resourceId = "<resourceId>",
+        ///                     },
+        ///                     uploadHeaders = new[] {
+        ///                         new {
+        ///                             name = "<name>",
+        ///                             value = "<value>",
+        ///                         }
+        ///                     },
+        ///                 },
+        ///             },
+        ///             uploadOptions = new {
+        ///                 uploadCondition = "tasksuccess",
+        ///             },
+        ///         }
+        ///     },
+        ///     environmentSettings = new[] {
+        ///         new {
+        ///             name = "<name>",
+        ///             value = "<value>",
+        ///         }
+        ///     },
+        ///     affinityInfo = new {
+        ///         affinityId = "<affinityId>",
+        ///     },
+        ///     constraints = new {
+        ///         maxWallClockTime = PT1H23M45S,
+        ///         retentionTime = PT1H23M45S,
+        ///         maxTaskRetryCount = 1234,
+        ///     },
+        ///     requiredSlots = 1234,
+        ///     userIdentity = new {
+        ///         username = "<username>",
+        ///         autoUser = new {
+        ///             scope = "task",
+        ///             elevationLevel = "nonadmin",
+        ///         },
+        ///     },
+        ///     multiInstanceSettings = new {
+        ///         numberOfInstances = 1234,
+        ///         coordinationCommandLine = "<coordinationCommandLine>",
+        ///         commonResourceFiles = new[] {
+        ///             new {
+        ///                 autoStorageContainerName = "<autoStorageContainerName>",
+        ///                 storageContainerUrl = "<storageContainerUrl>",
+        ///                 httpUrl = "<httpUrl>",
+        ///                 blobPrefix = "<blobPrefix>",
+        ///                 filePath = "<filePath>",
+        ///                 fileMode = "<fileMode>",
+        ///                 identityReference = new {
+        ///                     resourceId = "<resourceId>",
+        ///                 },
+        ///             }
+        ///         },
+        ///     },
+        ///     dependsOn = new {
+        ///         taskIds = new[] {
+        ///             "<String>"
+        ///         },
+        ///         taskIdRanges = new[] {
+        ///             new {
+        ///                 start = 1234,
+        ///                 end = 1234,
+        ///             }
+        ///         },
+        ///     },
+        ///     applicationPackageReferences = new[] {
+        ///         new {
+        ///             applicationId = "<applicationId>",
+        ///             version = "<version>",
+        ///         }
+        ///     },
+        ///     authenticationTokenSettings = new {
+        ///         access = new[] {
+        ///             "<String>"
+        ///         },
+        ///     },
+        /// };
+        /// 
+        /// Response response = client.Update("<jobId>", "<taskId>", RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>Task</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   url: string,
-        ///   eTag: string,
-        ///   lastModified: string (ISO 8601 Format),
-        ///   creationTime: string (ISO 8601 Format),
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
         ///   exitConditions: {
         ///     exitCodes: [
         ///       {
-        ///         code: number (required),
+        ///         code: number, # Required. A process exit code.
         ///         exitOptions: {
-        ///           jobAction: JobAction,
-        ///           dependencyAction: DependencyAction
-        ///         } (required)
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
         ///     exitCodeRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required),
-        ///         exitOptions: ExitOptions (required)
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
         ///       }
-        ///     ],
-        ///     preProcessingError: ExitOptions,
-        ///     fileUploadError: ExitOptions,
-        ///     default: ExitOptions
-        ///   },
-        ///   state: TaskState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: TaskState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   commandLine: string,
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
         ///   containerSettings: {
-        ///     containerRunOptions: string,
-        ///     imageName: string (required),
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
         ///     registry: {
-        ///       username: string,
-        ///       password: string,
-        ///       registryServer: string,
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
         ///       identityReference: {
-        ///         resourceId: string
-        ///       }
-        ///     },
-        ///     workingDirectory: ContainerWorkingDirectory
-        ///   },
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
         ///   resourceFiles: [
         ///     {
-        ///       autoStorageContainerName: string,
-        ///       storageContainerUrl: string,
-        ///       httpUrl: string,
-        ///       blobPrefix: string,
-        ///       filePath: string,
-        ///       fileMode: string,
-        ///       identityReference: ComputeNodeIdentityReference
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
         ///   outputFiles: [
         ///     {
-        ///       filePattern: string (required),
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
         ///       destination: {
         ///         container: {
-        ///           path: string,
-        ///           containerUrl: string (required),
-        ///           identityReference: ComputeNodeIdentityReference,
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
         ///           uploadHeaders: [
         ///             {
-        ///               name: string (required),
-        ///               value: string
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
         ///             }
-        ///           ]
-        ///         }
-        ///       } (required),
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
         ///       uploadOptions: {
-        ///         uploadCondition: OutputFileUploadCondition (required)
-        ///       } (required)
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
         ///     }
-        ///   ],
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
         ///   environmentSettings: [
         ///     {
-        ///       name: string (required),
-        ///       value: string
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
         ///     }
-        ///   ],
+        ///   ], # Optional. A list of environment variable settings for the Task.
         ///   affinityInfo: {
-        ///     affinityId: string (required)
-        ///   },
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
         ///   constraints: {
-        ///     maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///     retentionTime: TaskConstraintsRetentionTime,
-        ///     maxTaskRetryCount: number
-        ///   },
-        ///   requiredSlots: number,
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
         ///   userIdentity: {
-        ///     username: string,
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
         ///     autoUser: {
-        ///       scope: AutoUserScope,
-        ///       elevationLevel: ElevationLevel
-        ///     }
-        ///   },
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
         ///   executionInfo: {
-        ///     startTime: string (ISO 8601 Format),
-        ///     endTime: string (ISO 8601 Format),
-        ///     exitCode: number,
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///     containerInfo: {
-        ///       containerId: string,
-        ///       state: string,
-        ///       error: string
-        ///     },
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
         ///     failureInfo: {
-        ///       category: ErrorCategory (required),
-        ///       code: string,
-        ///       message: string,
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///       details: [
         ///         {
-        ///           name: string,
-        ///           value: string
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
         ///         }
-        ///       ]
-        ///     },
-        ///     retryCount: number (required),
-        ///     lastRetryTime: string (ISO 8601 Format),
-        ///     requeueCount: number (required),
-        ///     lastRequeueTime: string (ISO 8601 Format),
-        ///     result: TaskExecutionResult
-        ///   },
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
         ///   nodeInfo: {
-        ///     affinityId: string,
-        ///     nodeUrl: string,
-        ///     poolId: string,
-        ///     nodeId: string,
-        ///     taskRootDirectory: string,
-        ///     taskRootDirectoryUrl: string
-        ///   },
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
         ///   multiInstanceSettings: {
-        ///     numberOfInstances: number,
-        ///     coordinationCommandLine: string (required),
-        ///     commonResourceFiles: [ResourceFile]
-        ///   },
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
         ///   stats: {
-        ///     url: string (required),
-        ///     startTime: string (ISO 8601 Format) (required),
-        ///     lastUpdateTime: string (ISO 8601 Format) (required),
-        ///     userCPUTime: TaskStatisticsUserCPUTime (required),
-        ///     kernelCPUTime: TaskStatisticsKernelCPUTime (required),
-        ///     wallClockTime: TaskStatisticsWallClockTime (required),
-        ///     readIOps: number (required),
-        ///     writeIOps: number (required),
-        ///     readIOGiB: number (required),
-        ///     writeIOGiB: number (required),
-        ///     waitTime: TaskStatisticsWaitTime (required)
-        ///   },
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
         ///   dependsOn: {
-        ///     taskIds: [string],
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
         ///     taskIdRanges: [
         ///       {
-        ///         start: number (required),
-        ///         end: number (required)
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
         ///       }
-        ///     ]
-        ///   },
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
         ///   applicationPackageReferences: [
         ///     {
-        ///       applicationId: string (required),
-        ///       version: string
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
         ///     }
-        ///   ],
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
         ///   authenticationTokenSettings: {
-        ///     access: [AccessScope]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -1982,7 +3235,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> If the Task is not a multi-instance Task then this returns an empty collection. </summary>
+        /// <summary> Lists all of the subtasks that are associated with the specified multi-instance Task. </summary>
         /// <param name="jobId"> The ID of the Job. </param>
         /// <param name="taskId"> The ID of the Task. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -1990,64 +3243,101 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetSubtasksAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetSubtasksAsync("<jobId>", "<taskId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetSubtasksAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetSubtasksAsync("<jobId>", "<taskId>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("endTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("exitCode").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("containerId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("error").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("category").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("result").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// If the Task is not a multi-instance Task then this returns an empty collection.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskListSubtasksResult</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       id: number,
+        ///       id: number, # Optional. The ID of the subtask.
         ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
-        ///       startTime: string (ISO 8601 Format),
-        ///       endTime: string (ISO 8601 Format),
-        ///       exitCode: number,
+        ///         affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///         nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///         poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///         nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///         taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///         taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///       }, # Optional. Information about the Compute Node on which a Task ran.
+        ///       startTime: string (ISO 8601 Format), # Optional. The time at which the subtask started running. If the subtask has been restarted or retried, this is the most recent time at which the subtask started running.
+        ///       endTime: string (ISO 8601 Format), # Optional. This property is set only if the subtask is in the Completed state.
+        ///       exitCode: number, # Optional. This property is set only if the subtask is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the subtask (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///       containerInfo: {
-        ///         containerId: string,
-        ///         state: string,
-        ///         error: string
-        ///       },
+        ///         containerId: string, # Optional. The ID of the container.
+        ///         state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///         error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///       }, # Optional. This property is set only if the Task runs in a container context.
         ///       failureInfo: {
-        ///         category: ErrorCategory,
-        ///         code: string,
-        ///         message: string,
+        ///         category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///         code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///         message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///         details: [
         ///           {
-        ///             name: string,
-        ///             value: string
+        ///             name: string, # Optional. The name in the name-value pair.
+        ///             value: string, # Optional. The value in the name-value pair.
         ///           }
-        ///         ]
-        ///       },
-        ///       state: SubtaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: SubtaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       result: TaskExecutionResult
+        ///         ], # Optional. A list of additional details related to the error.
+        ///       }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///       state: &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the subtask.
+        ///       stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the subtask entered its current state.
+        ///       previousState: &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the subtask is in its initial running state.
+        ///       previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the subtask is in its initial running state.
+        ///       result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
         ///     }
-        ///   ]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   ], # Optional. The list of subtasks.
         /// }
         /// </code>
         /// 
@@ -2071,7 +3361,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> If the Task is not a multi-instance Task then this returns an empty collection. </summary>
+        /// <summary> Lists all of the subtasks that are associated with the specified multi-instance Task. </summary>
         /// <param name="jobId"> The ID of the Job. </param>
         /// <param name="taskId"> The ID of the Task. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -2079,64 +3369,101 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetSubtasks with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetSubtasks("<jobId>", "<taskId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetSubtasks with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetSubtasks("<jobId>", "<taskId>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("startTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("endTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("exitCode").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("containerId").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("containerInfo").GetProperty("error").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("category").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("value")[0].GetProperty("result").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// If the Task is not a multi-instance Task then this returns an empty collection.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskListSubtasksResult</c>:
         /// <code>{
         ///   value: [
         ///     {
-        ///       id: number,
+        ///       id: number, # Optional. The ID of the subtask.
         ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
-        ///       startTime: string (ISO 8601 Format),
-        ///       endTime: string (ISO 8601 Format),
-        ///       exitCode: number,
+        ///         affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///         nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///         poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///         nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///         taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///         taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///       }, # Optional. Information about the Compute Node on which a Task ran.
+        ///       startTime: string (ISO 8601 Format), # Optional. The time at which the subtask started running. If the subtask has been restarted or retried, this is the most recent time at which the subtask started running.
+        ///       endTime: string (ISO 8601 Format), # Optional. This property is set only if the subtask is in the Completed state.
+        ///       exitCode: number, # Optional. This property is set only if the subtask is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the subtask (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
         ///       containerInfo: {
-        ///         containerId: string,
-        ///         state: string,
-        ///         error: string
-        ///       },
+        ///         containerId: string, # Optional. The ID of the container.
+        ///         state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///         error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///       }, # Optional. This property is set only if the Task runs in a container context.
         ///       failureInfo: {
-        ///         category: ErrorCategory,
-        ///         code: string,
-        ///         message: string,
+        ///         category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///         code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///         message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
         ///         details: [
         ///           {
-        ///             name: string,
-        ///             value: string
+        ///             name: string, # Optional. The name in the name-value pair.
+        ///             value: string, # Optional. The value in the name-value pair.
         ///           }
-        ///         ]
-        ///       },
-        ///       state: SubtaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: SubtaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       result: TaskExecutionResult
+        ///         ], # Optional. A list of additional details related to the error.
+        ///       }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///       state: &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the subtask.
+        ///       stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the subtask entered its current state.
+        ///       previousState: &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the subtask is in its initial running state.
+        ///       previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the subtask is in its initial running state.
+        ///       result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
         ///     }
-        ///   ]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   ], # Optional. The list of subtasks.
         /// }
         /// </code>
         /// 
@@ -2160,7 +3487,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> When the Task has been terminated, it moves to the completed state. For multi-instance Tasks, the terminate Task operation applies synchronously to the primary task; subtasks are then terminated asynchronously in the background. </summary>
+        /// <summary> Terminates the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to terminate. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -2168,27 +3495,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call TerminateAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = await client.TerminateAsync("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call TerminateAsync with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.TerminateAsync("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> When the Task has been terminated, it moves to the completed state. For multi-instance Tasks, the terminate Task operation applies synchronously to the primary task; subtasks are then terminated asynchronously in the background. </remarks>
         public virtual async Task<Response> TerminateAsync(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -2208,7 +3538,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> When the Task has been terminated, it moves to the completed state. For multi-instance Tasks, the terminate Task operation applies synchronously to the primary task; subtasks are then terminated asynchronously in the background. </summary>
+        /// <summary> Terminates the specified Task. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to terminate. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -2216,27 +3546,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Terminate with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = client.Terminate("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Terminate with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.Terminate("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> When the Task has been terminated, it moves to the completed state. For multi-instance Tasks, the terminate Task operation applies synchronously to the primary task; subtasks are then terminated asynchronously in the background. </remarks>
         public virtual Response Terminate(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -2256,7 +3589,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> Reactivation makes a Task eligible to be retried again up to its maximum retry count. The Task&apos;s state is changed to active. As the Task is no longer in the completed state, any previous exit code or failure information is no longer available after reactivation. Each time a Task is reactivated, its retry count is reset to 0. Reactivation will fail for Tasks that are not completed or that previously completed successfully (with an exit code of 0). Additionally, it will fail if the Job has completed (or is terminating or deleting). </summary>
+        /// <summary> Reactivates a Task, allowing it to run again even if its retry count has been exhausted. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to reactivate. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -2264,27 +3597,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call ReactivateAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = await client.ReactivateAsync("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call ReactivateAsync with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.ReactivateAsync("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> Reactivation makes a Task eligible to be retried again up to its maximum retry count. The Task&apos;s state is changed to active. As the Task is no longer in the completed state, any previous exit code or failure information is no longer available after reactivation. Each time a Task is reactivated, its retry count is reset to 0. Reactivation will fail for Tasks that are not completed or that previously completed successfully (with an exit code of 0). Additionally, it will fail if the Job has completed (or is terminating or deleting). </remarks>
         public virtual async Task<Response> ReactivateAsync(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -2304,7 +3640,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> Reactivation makes a Task eligible to be retried again up to its maximum retry count. The Task&apos;s state is changed to active. As the Task is no longer in the completed state, any previous exit code or failure information is no longer available after reactivation. Each time a Task is reactivated, its retry count is reset to 0. Reactivation will fail for Tasks that are not completed or that previously completed successfully (with an exit code of 0). Additionally, it will fail if the Job has completed (or is terminating or deleting). </summary>
+        /// <summary> Reactivates a Task, allowing it to run again even if its retry count has been exhausted. </summary>
         /// <param name="jobId"> The ID of the Job containing the Task. </param>
         /// <param name="taskId"> The ID of the Task to reactivate. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
@@ -2312,27 +3648,30 @@ namespace Azure.Compute.Batch
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
         /// <param name="requestConditions"> The content to send as the request conditions of the request. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> or <paramref name="taskId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> or <paramref name="taskId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Reactivate with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = client.Reactivate("<jobId>", "<taskId>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Reactivate with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.Reactivate("<jobId>", "<taskId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow, null);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> Reactivation makes a Task eligible to be retried again up to its maximum retry count. The Task&apos;s state is changed to active. As the Task is no longer in the completed state, any previous exit code or failure information is no longer available after reactivation. Each time a Task is reactivated, its retry count is reset to 0. Reactivation will fail for Tasks that are not completed or that previously completed successfully (with an exit code of 0). Additionally, it will fail if the Job has completed (or is terminating or deleting). </remarks>
         public virtual Response Reactivate(string jobId, string taskId, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestConditions requestConditions = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
@@ -2352,7 +3691,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks. </summary>
+        /// <summary> Lists all of the Tasks that are associated with the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job. </param>
         /// <param name="filter"> An OData $filter clause. For more information on constructing this filter, see https://docs.microsoft.com/en-us/rest/api/batchservice/odata-filters-in-batch#list-tasks. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -2362,201 +3701,315 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       url: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       creationTime: string (ISO 8601 Format),
-        ///       exitConditions: {
-        ///         exitCodes: [
-        ///           {
-        ///             code: number,
-        ///             exitOptions: {
-        ///               jobAction: JobAction,
-        ///               dependencyAction: DependencyAction
-        ///             }
-        ///           }
-        ///         ],
-        ///         exitCodeRanges: [
-        ///           {
-        ///             start: number,
-        ///             end: number,
-        ///             exitOptions: ExitOptions
-        ///           }
-        ///         ],
-        ///         preProcessingError: ExitOptions,
-        ///         fileUploadError: ExitOptions,
-        ///         default: ExitOptions
-        ///       },
-        ///       state: TaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: TaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       commandLine: string,
-        ///       containerSettings: {
-        ///         containerRunOptions: string,
-        ///         imageName: string,
-        ///         registry: {
-        ///           username: string,
-        ///           password: string,
-        ///           registryServer: string,
-        ///           identityReference: {
-        ///             resourceId: string
-        ///           }
-        ///         },
-        ///         workingDirectory: ContainerWorkingDirectory
-        ///       },
-        ///       resourceFiles: [
-        ///         {
-        ///           autoStorageContainerName: string,
-        ///           storageContainerUrl: string,
-        ///           httpUrl: string,
-        ///           blobPrefix: string,
-        ///           filePath: string,
-        ///           fileMode: string,
-        ///           identityReference: ComputeNodeIdentityReference
-        ///         }
-        ///       ],
-        ///       outputFiles: [
-        ///         {
-        ///           filePattern: string,
-        ///           destination: {
-        ///             container: {
-        ///               path: string,
-        ///               containerUrl: string,
-        ///               identityReference: ComputeNodeIdentityReference,
-        ///               uploadHeaders: [
-        ///                 {
-        ///                   name: string,
-        ///                   value: string
-        ///                 }
-        ///               ]
-        ///             }
-        ///           },
-        ///           uploadOptions: {
-        ///             uploadCondition: OutputFileUploadCondition
-        ///           }
-        ///         }
-        ///       ],
-        ///       environmentSettings: [
-        ///         {
-        ///           name: string,
-        ///           value: string
-        ///         }
-        ///       ],
-        ///       affinityInfo: {
-        ///         affinityId: string
-        ///       },
-        ///       constraints: {
-        ///         maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///         retentionTime: TaskConstraintsRetentionTime,
-        ///         maxTaskRetryCount: number
-        ///       },
-        ///       requiredSlots: number,
-        ///       userIdentity: {
-        ///         username: string,
-        ///         autoUser: {
-        ///           scope: AutoUserScope,
-        ///           elevationLevel: ElevationLevel
-        ///         }
-        ///       },
-        ///       executionInfo: {
-        ///         startTime: string (ISO 8601 Format),
-        ///         endTime: string (ISO 8601 Format),
-        ///         exitCode: number,
-        ///         containerInfo: {
-        ///           containerId: string,
-        ///           state: string,
-        ///           error: string
-        ///         },
-        ///         failureInfo: {
-        ///           category: ErrorCategory,
-        ///           code: string,
-        ///           message: string,
-        ///           details: [
-        ///             {
-        ///               name: string,
-        ///               value: string
-        ///             }
-        ///           ]
-        ///         },
-        ///         retryCount: number,
-        ///         lastRetryTime: string (ISO 8601 Format),
-        ///         requeueCount: number,
-        ///         lastRequeueTime: string (ISO 8601 Format),
-        ///         result: TaskExecutionResult
-        ///       },
-        ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
-        ///       multiInstanceSettings: {
-        ///         numberOfInstances: number,
-        ///         coordinationCommandLine: string,
-        ///         commonResourceFiles: [ResourceFile]
-        ///       },
-        ///       stats: {
-        ///         url: string,
-        ///         startTime: string (ISO 8601 Format),
-        ///         lastUpdateTime: string (ISO 8601 Format),
-        ///         userCPUTime: TaskStatisticsUserCPUTime,
-        ///         kernelCPUTime: TaskStatisticsKernelCPUTime,
-        ///         wallClockTime: TaskStatisticsWallClockTime,
-        ///         readIOps: number,
-        ///         writeIOps: number,
-        ///         readIOGiB: number,
-        ///         writeIOGiB: number,
-        ///         waitTime: TaskStatisticsWaitTime
-        ///       },
-        ///       dependsOn: {
-        ///         taskIds: [string],
-        ///         taskIdRanges: [
-        ///           {
-        ///             start: number,
-        ///             end: number
-        ///           }
-        ///         ]
-        ///       },
-        ///       applicationPackageReferences: [
-        ///         {
-        ///           applicationId: string,
-        ///           version: string
-        ///         }
-        ///       ],
-        ///       authenticationTokenSettings: {
-        ///         access: [AccessScope]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetTasksAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetTasksAsync("<jobId>"))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetTasksAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetTasksAsync("<jobId>", "<filter>", "<select>", "<expand>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("eTag").ToString());
+        ///     Console.WriteLine(result.GetProperty("lastModified").ToString());
+        ///     Console.WriteLine(result.GetProperty("creationTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("start").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("end").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousState").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("commandLine").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("containerRunOptions").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("imageName").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("username").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("password").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("registryServer").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("workingDirectory").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("httpUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("blobPrefix").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("filePath").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("fileMode").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("filePattern").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("path").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("containerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("uploadOptions").GetProperty("uploadCondition").ToString());
+        ///     Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("affinityInfo").GetProperty("affinityId").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("maxWallClockTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("retentionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("maxTaskRetryCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("requiredSlots").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("username").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("scope").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("elevationLevel").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("startTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("endTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("exitCode").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("containerId").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("error").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("category").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("retryCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRetryTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("requeueCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRequeueTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("result").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("numberOfInstances").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("coordinationCommandLine").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("httpUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("blobPrefix").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("filePath").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("fileMode").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("startTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("lastUpdateTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("userCPUTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("kernelCPUTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("wallClockTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("readIOps").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOps").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("readIOGiB").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOGiB").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("waitTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIds")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("start").ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("end").ToString());
+        ///     Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("applicationId").ToString());
+        ///     Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("version").ToString());
+        ///     Console.WriteLine(result.GetProperty("authenticationTokenSettings").GetProperty("access")[0].ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks.
+        /// 
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
+        ///   exitConditions: {
+        ///     exitCodes: [
+        ///       {
+        ///         code: number, # Required. A process exit code.
+        ///         exitOptions: {
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
+        ///       }
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
+        ///     exitCodeRanges: [
+        ///       {
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
+        ///       }
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
+        ///   containerSettings: {
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
+        ///     registry: {
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
+        ///       identityReference: {
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
+        ///   resourceFiles: [
         ///     {
-        ///       key: string,
-        ///       value: string
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ]
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   outputFiles: [
+        ///     {
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
+        ///       destination: {
+        ///         container: {
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
+        ///           uploadHeaders: [
+        ///             {
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
+        ///             }
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
+        ///       uploadOptions: {
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
+        ///     }
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
+        ///   environmentSettings: [
+        ///     {
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
+        ///     }
+        ///   ], # Optional. A list of environment variable settings for the Task.
+        ///   affinityInfo: {
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
+        ///   constraints: {
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
+        ///   userIdentity: {
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///     autoUser: {
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
+        ///   executionInfo: {
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
+        ///     containerInfo: {
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
+        ///     failureInfo: {
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
+        ///       details: [
+        ///         {
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
+        ///         }
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
+        ///   nodeInfo: {
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
+        ///   multiInstanceSettings: {
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
+        ///   stats: {
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
+        ///   dependsOn: {
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
+        ///     taskIdRanges: [
+        ///       {
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
+        ///       }
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
+        ///   applicationPackageReferences: [
+        ///     {
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
+        ///     }
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
+        ///   authenticationTokenSettings: {
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -2565,7 +4018,12 @@ namespace Azure.Compute.Batch
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
 
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "TaskClient.GetTasks");
+            return GetTasksImplementationAsync("TaskClient.GetTasks", jobId, filter, select, expand, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetTasksImplementationAsync(string diagnosticsScopeName, string jobId, string filter, string select, string expand, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -2580,7 +4038,7 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks. </summary>
+        /// <summary> Lists all of the Tasks that are associated with the specified Job. </summary>
         /// <param name="jobId"> The ID of the Job. </param>
         /// <param name="filter"> An OData $filter clause. For more information on constructing this filter, see https://docs.microsoft.com/en-us/rest/api/batchservice/odata-filters-in-batch#list-tasks. </param>
         /// <param name="select"> An OData $select clause. </param>
@@ -2590,201 +4048,315 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="jobId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="jobId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       url: string,
-        ///       eTag: string,
-        ///       lastModified: string (ISO 8601 Format),
-        ///       creationTime: string (ISO 8601 Format),
-        ///       exitConditions: {
-        ///         exitCodes: [
-        ///           {
-        ///             code: number,
-        ///             exitOptions: {
-        ///               jobAction: JobAction,
-        ///               dependencyAction: DependencyAction
-        ///             }
-        ///           }
-        ///         ],
-        ///         exitCodeRanges: [
-        ///           {
-        ///             start: number,
-        ///             end: number,
-        ///             exitOptions: ExitOptions
-        ///           }
-        ///         ],
-        ///         preProcessingError: ExitOptions,
-        ///         fileUploadError: ExitOptions,
-        ///         default: ExitOptions
-        ///       },
-        ///       state: TaskState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: TaskState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       commandLine: string,
-        ///       containerSettings: {
-        ///         containerRunOptions: string,
-        ///         imageName: string,
-        ///         registry: {
-        ///           username: string,
-        ///           password: string,
-        ///           registryServer: string,
-        ///           identityReference: {
-        ///             resourceId: string
-        ///           }
-        ///         },
-        ///         workingDirectory: ContainerWorkingDirectory
-        ///       },
-        ///       resourceFiles: [
-        ///         {
-        ///           autoStorageContainerName: string,
-        ///           storageContainerUrl: string,
-        ///           httpUrl: string,
-        ///           blobPrefix: string,
-        ///           filePath: string,
-        ///           fileMode: string,
-        ///           identityReference: ComputeNodeIdentityReference
-        ///         }
-        ///       ],
-        ///       outputFiles: [
-        ///         {
-        ///           filePattern: string,
-        ///           destination: {
-        ///             container: {
-        ///               path: string,
-        ///               containerUrl: string,
-        ///               identityReference: ComputeNodeIdentityReference,
-        ///               uploadHeaders: [
-        ///                 {
-        ///                   name: string,
-        ///                   value: string
-        ///                 }
-        ///               ]
-        ///             }
-        ///           },
-        ///           uploadOptions: {
-        ///             uploadCondition: OutputFileUploadCondition
-        ///           }
-        ///         }
-        ///       ],
-        ///       environmentSettings: [
-        ///         {
-        ///           name: string,
-        ///           value: string
-        ///         }
-        ///       ],
-        ///       affinityInfo: {
-        ///         affinityId: string
-        ///       },
-        ///       constraints: {
-        ///         maxWallClockTime: TaskConstraintsMaxWallClockTime,
-        ///         retentionTime: TaskConstraintsRetentionTime,
-        ///         maxTaskRetryCount: number
-        ///       },
-        ///       requiredSlots: number,
-        ///       userIdentity: {
-        ///         username: string,
-        ///         autoUser: {
-        ///           scope: AutoUserScope,
-        ///           elevationLevel: ElevationLevel
-        ///         }
-        ///       },
-        ///       executionInfo: {
-        ///         startTime: string (ISO 8601 Format),
-        ///         endTime: string (ISO 8601 Format),
-        ///         exitCode: number,
-        ///         containerInfo: {
-        ///           containerId: string,
-        ///           state: string,
-        ///           error: string
-        ///         },
-        ///         failureInfo: {
-        ///           category: ErrorCategory,
-        ///           code: string,
-        ///           message: string,
-        ///           details: [
-        ///             {
-        ///               name: string,
-        ///               value: string
-        ///             }
-        ///           ]
-        ///         },
-        ///         retryCount: number,
-        ///         lastRetryTime: string (ISO 8601 Format),
-        ///         requeueCount: number,
-        ///         lastRequeueTime: string (ISO 8601 Format),
-        ///         result: TaskExecutionResult
-        ///       },
-        ///       nodeInfo: {
-        ///         affinityId: string,
-        ///         nodeUrl: string,
-        ///         poolId: string,
-        ///         nodeId: string,
-        ///         taskRootDirectory: string,
-        ///         taskRootDirectoryUrl: string
-        ///       },
-        ///       multiInstanceSettings: {
-        ///         numberOfInstances: number,
-        ///         coordinationCommandLine: string,
-        ///         commonResourceFiles: [ResourceFile]
-        ///       },
-        ///       stats: {
-        ///         url: string,
-        ///         startTime: string (ISO 8601 Format),
-        ///         lastUpdateTime: string (ISO 8601 Format),
-        ///         userCPUTime: TaskStatisticsUserCPUTime,
-        ///         kernelCPUTime: TaskStatisticsKernelCPUTime,
-        ///         wallClockTime: TaskStatisticsWallClockTime,
-        ///         readIOps: number,
-        ///         writeIOps: number,
-        ///         readIOGiB: number,
-        ///         writeIOGiB: number,
-        ///         waitTime: TaskStatisticsWaitTime
-        ///       },
-        ///       dependsOn: {
-        ///         taskIds: [string],
-        ///         taskIdRanges: [
-        ///           {
-        ///             start: number,
-        ///             end: number
-        ///           }
-        ///         ]
-        ///       },
-        ///       applicationPackageReferences: [
-        ///         {
-        ///           applicationId: string,
-        ///           version: string
-        ///         }
-        ///       ],
-        ///       authenticationTokenSettings: {
-        ///         access: [AccessScope]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetTasks with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetTasks("<jobId>"))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetTasks with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetTaskClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetTasks("<jobId>", "<filter>", "<select>", "<expand>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("eTag").ToString());
+        ///     Console.WriteLine(result.GetProperty("lastModified").ToString());
+        ///     Console.WriteLine(result.GetProperty("creationTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodes")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("start").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("end").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("exitCodeRanges")[0].GetProperty("exitOptions").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("preProcessingError").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("fileUploadError").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("jobAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("exitConditions").GetProperty("default").GetProperty("dependencyAction").ToString());
+        ///     Console.WriteLine(result.GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousState").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("commandLine").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("containerRunOptions").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("imageName").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("username").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("password").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("registryServer").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("registry").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("containerSettings").GetProperty("workingDirectory").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("httpUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("blobPrefix").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("filePath").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("fileMode").ToString());
+        ///     Console.WriteLine(result.GetProperty("resourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("filePattern").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("path").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("containerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("destination").GetProperty("container").GetProperty("uploadHeaders")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("outputFiles")[0].GetProperty("uploadOptions").GetProperty("uploadCondition").ToString());
+        ///     Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("environmentSettings")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("affinityInfo").GetProperty("affinityId").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("maxWallClockTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("retentionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("constraints").GetProperty("maxTaskRetryCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("requiredSlots").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("username").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("scope").ToString());
+        ///     Console.WriteLine(result.GetProperty("userIdentity").GetProperty("autoUser").GetProperty("elevationLevel").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("startTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("endTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("exitCode").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("containerId").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("containerInfo").GetProperty("error").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("category").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("failureInfo").GetProperty("details")[0].GetProperty("value").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("retryCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRetryTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("requeueCount").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("lastRequeueTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("executionInfo").GetProperty("result").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("affinityId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("poolId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("nodeId").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectory").ToString());
+        ///     Console.WriteLine(result.GetProperty("nodeInfo").GetProperty("taskRootDirectoryUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("numberOfInstances").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("coordinationCommandLine").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("autoStorageContainerName").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("storageContainerUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("httpUrl").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("blobPrefix").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("filePath").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("fileMode").ToString());
+        ///     Console.WriteLine(result.GetProperty("multiInstanceSettings").GetProperty("commonResourceFiles")[0].GetProperty("identityReference").GetProperty("resourceId").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("startTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("lastUpdateTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("userCPUTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("kernelCPUTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("wallClockTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("readIOps").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOps").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("readIOGiB").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("writeIOGiB").ToString());
+        ///     Console.WriteLine(result.GetProperty("stats").GetProperty("waitTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIds")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("start").ToString());
+        ///     Console.WriteLine(result.GetProperty("dependsOn").GetProperty("taskIdRanges")[0].GetProperty("end").ToString());
+        ///     Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("applicationId").ToString());
+        ///     Console.WriteLine(result.GetProperty("applicationPackageReferences")[0].GetProperty("version").ToString());
+        ///     Console.WriteLine(result.GetProperty("authenticationTokenSettings").GetProperty("access")[0].ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// For multi-instance Tasks, information such as affinityId, executionInfo and nodeInfo refer to the primary Task. Use the list subtasks API to retrieve information about subtasks.
+        /// 
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>TaskListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
+        ///   id: string, # Optional. The ID can contain any combination of alphanumeric characters including hyphens and underscores, and cannot contain more than 64 characters.
+        ///   displayName: string, # Optional. The display name need not be unique and can contain any Unicode characters up to a maximum length of 1024.
+        ///   url: string, # Optional. The URL of the Task.
+        ///   eTag: string, # Optional. This is an opaque string. You can use it to detect whether the Task has changed between requests. In particular, you can be pass the ETag when updating a Task to specify that your changes should take effect only if nobody else has modified the Task in the meantime.
+        ///   lastModified: string (ISO 8601 Format), # Optional. The last modified time of the Task.
+        ///   creationTime: string (ISO 8601 Format), # Optional. The creation time of the Task.
+        ///   exitConditions: {
+        ///     exitCodes: [
+        ///       {
+        ///         code: number, # Required. A process exit code.
+        ///         exitOptions: {
+        ///           jobAction: &quot;none&quot; | &quot;disable&quot; | &quot;terminate&quot;, # Optional. The default is none for exit code 0 and terminate for all other exit conditions. If the Job&apos;s onTaskFailed property is noaction, then specifying this property returns an error and the add Task request fails with an invalid property value error; if you are calling the REST API directly, the HTTP status code is 400 (Bad Request).
+        ///           dependencyAction: &quot;satisfy&quot; | &quot;block&quot;, # Optional. Possible values are &apos;satisfy&apos; (allowing dependent tasks to progress) and &apos;block&apos; (dependent tasks continue to wait). Batch does not yet support cancellation of dependent tasks.
+        ///         }, # Required. Specifies how the Batch service responds to a particular exit condition.
+        ///       }
+        ///     ], # Optional. A list of individual Task exit codes and how the Batch service should respond to them.
+        ///     exitCodeRanges: [
+        ///       {
+        ///         start: number, # Required. The first exit code in the range.
+        ///         end: number, # Required. The last exit code in the range.
+        ///         exitOptions: ExitOptions, # Required. Specifies how the Batch service responds to a particular exit condition.
+        ///       }
+        ///     ], # Optional. A list of Task exit code ranges and how the Batch service should respond to them.
+        ///     preProcessingError: ExitOptions, # Optional. Specifies how the Batch service responds to a particular exit condition.
+        ///     fileUploadError: ExitOptions, # Optional. If the Task exited with an exit code that was specified via exitCodes or exitCodeRanges, and then encountered a file upload error, then the action specified by the exit code takes precedence.
+        ///     default: ExitOptions, # Optional. This value is used if the Task exits with any nonzero exit code not listed in the exitCodes or exitCodeRanges collection, with a pre-processing error if the preProcessingError property is not present, or with a file upload error if the fileUploadError property is not present. If you want non-default behavior on exit code 0, you must list it explicitly using the exitCodes or exitCodeRanges collection.
+        ///   }, # Optional. How the Batch service should respond when the Task completes.
+        ///   state: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. The state of the Task.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Task entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;preparing&quot; | &quot;running&quot; | &quot;completed&quot;, # Optional. This property is not set if the Task is in its initial Active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Task is in its initial Active state.
+        ///   commandLine: string, # Optional. For multi-instance Tasks, the command line is executed as the primary Task, after the primary Task and all subtasks have finished executing the coordination command line. The command line does not run under a shell, and therefore cannot take advantage of shell features such as environment variable expansion. If you want to take advantage of such features, you should invoke the shell in the command line, for example using &quot;cmd /c MyCommand&quot; in Windows or &quot;/bin/sh -c MyCommand&quot; in Linux. If the command line refers to file paths, it should use a relative path (relative to the Task working directory), or use the Batch provided environment variable (https://docs.microsoft.com/en-us/azure/batch/batch-compute-node-environment-variables).
+        ///   containerSettings: {
+        ///     containerRunOptions: string, # Optional. These additional options are supplied as arguments to the &quot;docker create&quot; command, in addition to those controlled by the Batch Service.
+        ///     imageName: string, # Required. This is the full Image reference, as would be specified to &quot;docker pull&quot;. If no tag is provided as part of the Image name, the tag &quot;:latest&quot; is used as a default.
+        ///     registry: {
+        ///       username: string, # Optional. The user name to log into the registry server.
+        ///       password: string, # Optional. The password to log into the registry server.
+        ///       registryServer: string, # Optional. If omitted, the default is &quot;docker.io&quot;.
+        ///       identityReference: {
+        ///         resourceId: string, # Optional. The ARM resource id of the user assigned identity.
+        ///       }, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
+        ///     }, # Optional. This setting can be omitted if was already provided at Pool creation.
+        ///     workingDirectory: &quot;taskWorkingDirectory&quot; | &quot;containerImageDefault&quot;, # Optional. The default is &apos;taskWorkingDirectory&apos;.
+        ///   }, # Optional. If the Pool that will run this Task has containerConfiguration set, this must be set as well. If the Pool that will run this Task doesn&apos;t have containerConfiguration set, this must not be set. When this is specified, all directories recursively below the AZ_BATCH_NODE_ROOT_DIR (the root of Azure Batch directories on the node) are mapped into the container, all Task environment variables are mapped into the container, and the Task command line is executed in the container. Files produced in the container outside of AZ_BATCH_NODE_ROOT_DIR might not be reflected to the host disk, meaning that Batch file APIs will not be able to access those files.
+        ///   resourceFiles: [
         ///     {
-        ///       key: string,
-        ///       value: string
+        ///       autoStorageContainerName: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified.
+        ///       storageContainerUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. This URL must be readable and listable from compute nodes. There are three ways to get such a URL for a container in Azure storage: include a Shared Access Signature (SAS) granting read and list permissions on the container, use a managed identity with read and list permissions, or set the ACL for the container to allow public access.
+        ///       httpUrl: string, # Optional. The autoStorageContainerName, storageContainerUrl and httpUrl properties are mutually exclusive and one of them must be specified. If the URL points to Azure Blob Storage, it must be readable from compute nodes. There are three ways to get such a URL for a blob in Azure storage: include a Shared Access Signature (SAS) granting read permissions on the blob, use a managed identity with read permission, or set the ACL for the blob or its container to allow public access.
+        ///       blobPrefix: string, # Optional. The property is valid only when autoStorageContainerName or storageContainerUrl is used. This prefix can be a partial filename or a subdirectory. If a prefix is not specified, all the files in the container will be downloaded.
+        ///       filePath: string, # Optional. If the httpUrl property is specified, the filePath is required and describes the path which the file will be downloaded to, including the filename. Otherwise, if the autoStorageContainerName or storageContainerUrl property is specified, filePath is optional and is the directory to download the files to. In the case where filePath is used as a directory, any directory structure already associated with the input data will be retained in full and appended to the specified filePath directory. The specified relative path cannot break out of the Task&apos;s working directory (for example by using &apos;..&apos;).
+        ///       fileMode: string, # Optional. This property applies only to files being downloaded to Linux Compute Nodes. It will be ignored if it is specified for a resourceFile which will be downloaded to a Windows Compute Node. If this property is not specified for a Linux Compute Node, then a default value of 0770 is applied to the file.
+        ///       identityReference: ComputeNodeIdentityReference, # Optional. The reference to a user assigned identity associated with the Batch pool which a compute node will use.
         ///     }
-        ///   ]
+        ///   ], # Optional. For multi-instance Tasks, the resource files will only be downloaded to the Compute Node on which the primary Task is executed. There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   outputFiles: [
+        ///     {
+        ///       filePattern: string, # Required. Both relative and absolute paths are supported. Relative paths are relative to the Task working directory. The following wildcards are supported: * matches 0 or more characters (for example pattern abc* would match abc or abcdef), ** matches any directory, ? matches any single character, [abc] matches one character in the brackets, and [a-c] matches one character in the range. Brackets can include a negation to match any character not specified (for example [!abc] matches any character but a, b, or c). If a file name starts with &quot;.&quot; it is ignored by default but may be matched by specifying it explicitly (for example *.gif will not match .a.gif, but .*.gif will). A simple example: **\*.txt matches any file that does not start in &apos;.&apos; and ends with .txt in the Task working directory or any subdirectory. If the filename contains a wildcard character it can be escaped using brackets (for example abc[*] would match a file named abc*). Note that both \ and / are treated as directory separators on Windows, but only / is on Linux. Environment variables (%var% on Windows or $var on Linux) are expanded prior to the pattern being applied.
+        ///       destination: {
+        ///         container: {
+        ///           path: string, # Optional. If filePattern refers to a specific file (i.e. contains no wildcards), then path is the name of the blob to which to upload that file. If filePattern contains one or more wildcards (and therefore may match multiple files), then path is the name of the blob virtual directory (which is prepended to each blob name) to which to upload the file(s). If omitted, file(s) are uploaded to the root of the container with a blob name matching their file name.
+        ///           containerUrl: string, # Required. If not using a managed identity, the URL must include a Shared Access Signature (SAS) granting write permissions to the container.
+        ///           identityReference: ComputeNodeIdentityReference, # Optional. The identity must have write access to the Azure Blob Storage container
+        ///           uploadHeaders: [
+        ///             {
+        ///               name: string, # Required. The case-insensitive name of the header to be used while uploading output files
+        ///               value: string, # Optional. The value of the header to be used while uploading output files
+        ///             }
+        ///           ], # Optional. These headers will be specified when uploading files to Azure Storage. For more information, see [Request Headers (All Blob Types)](https://docs.microsoft.com/rest/api/storageservices/put-blob#request-headers-all-blob-types).
+        ///         }, # Optional. Specifies a file upload destination within an Azure blob storage container.
+        ///       }, # Required. The destination to which a file should be uploaded.
+        ///       uploadOptions: {
+        ///         uploadCondition: &quot;tasksuccess&quot; | &quot;taskfailure&quot; | &quot;taskcompletion&quot;, # Required. The default is taskcompletion.
+        ///       }, # Required. Details about an output file upload operation, including under what conditions to perform the upload.
+        ///     }
+        ///   ], # Optional. For multi-instance Tasks, the files will only be uploaded from the Compute Node on which the primary Task is executed.
+        ///   environmentSettings: [
+        ///     {
+        ///       name: string, # Required. The name of the environment variable.
+        ///       value: string, # Optional. The value of the environment variable.
+        ///     }
+        ///   ], # Optional. A list of environment variable settings for the Task.
+        ///   affinityInfo: {
+        ///     affinityId: string, # Required. You can pass the affinityId of a Node to indicate that this Task needs to run on that Compute Node. Note that this is just a soft affinity. If the target Compute Node is busy or unavailable at the time the Task is scheduled, then the Task will be scheduled elsewhere.
+        ///   }, # Optional. A locality hint that can be used by the Batch service to select a Compute Node on which to start a Task.
+        ///   constraints: {
+        ///     maxWallClockTime: string (duration ISO 8601 Format), # Optional. If this is not specified, there is no time limit on how long the Task may run.
+        ///     retentionTime: string (duration ISO 8601 Format), # Optional. The default is 7 days, i.e. the Task directory will be retained for 7 days unless the Compute Node is removed or the Job is deleted.
+        ///     maxTaskRetryCount: number, # Optional. Note that this value specifically controls the number of retries for the Task executable due to a nonzero exit code. The Batch service will try the Task once, and may then retry up to this limit. For example, if the maximum retry count is 3, Batch tries the Task up to 4 times (one initial try and 3 retries). If the maximum retry count is 0, the Batch service does not retry the Task after the first attempt. If the maximum retry count is -1, the Batch service retries the Task without limit, however this is not recommended for a start task or any task. The default value is 0 (no retries)
+        ///   }, # Optional. Execution constraints to apply to a Task.
+        ///   requiredSlots: number, # Optional. The default is 1. A Task can only be scheduled to run on a compute node if the node has enough free scheduling slots available. For multi-instance Tasks, this must be 1.
+        ///   userIdentity: {
+        ///     username: string, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///     autoUser: {
+        ///       scope: &quot;task&quot; | &quot;pool&quot;, # Optional. The default value is pool. If the pool is running Windows a value of Task should be specified if stricter isolation between tasks is required. For example, if the task mutates the registry in a way which could impact other tasks, or if certificates have been specified on the pool which should not be accessible by normal tasks but should be accessible by StartTasks.
+        ///       elevationLevel: &quot;nonadmin&quot; | &quot;admin&quot;, # Optional. The default value is nonAdmin.
+        ///     }, # Optional. The userName and autoUser properties are mutually exclusive; you must specify one but not both.
+        ///   }, # Optional. If omitted, the Task runs as a non-administrative user unique to the Task.
+        ///   executionInfo: {
+        ///     startTime: string (ISO 8601 Format), # Optional. &apos;Running&apos; corresponds to the running state, so if the Task specifies resource files or Packages, then the start time reflects the time at which the Task started downloading or deploying these. If the Task has been restarted or retried, this is the most recent time at which the Task started running. This property is present only for Tasks that are in the running or completed state.
+        ///     endTime: string (ISO 8601 Format), # Optional. This property is set only if the Task is in the Completed state.
+        ///     exitCode: number, # Optional. This property is set only if the Task is in the completed state. In general, the exit code for a process reflects the specific convention implemented by the application developer for that process. If you use the exit code value to make decisions in your code, be sure that you know the exit code convention used by the application process. However, if the Batch service terminates the Task (due to timeout, or user termination via the API) you may see an operating system-defined exit code.
+        ///     containerInfo: {
+        ///       containerId: string, # Optional. The ID of the container.
+        ///       state: string, # Optional. This is the state of the container according to the Docker service. It is equivalent to the status field returned by &quot;docker inspect&quot;.
+        ///       error: string, # Optional. This is the detailed error string from the Docker service, if available. It is equivalent to the error field returned by &quot;docker inspect&quot;.
+        ///     }, # Optional. This property is set only if the Task runs in a container context.
+        ///     failureInfo: {
+        ///       category: &quot;usererror&quot; | &quot;servererror&quot;, # Required. The category of the error.
+        ///       code: string, # Optional. An identifier for the Task error. Codes are invariant and are intended to be consumed programmatically.
+        ///       message: string, # Optional. A message describing the Task error, intended to be suitable for display in a user interface.
+        ///       details: [
+        ///         {
+        ///           name: string, # Optional. The name in the name-value pair.
+        ///           value: string, # Optional. The value in the name-value pair.
+        ///         }
+        ///       ], # Optional. A list of additional details related to the error.
+        ///     }, # Optional. This property is set only if the Task is in the completed state and encountered a failure.
+        ///     retryCount: number, # Required. Task application failures (non-zero exit code) are retried, pre-processing errors (the Task could not be run) and file upload errors are not retried. The Batch service will retry the Task up to the limit specified by the constraints.
+        ///     lastRetryTime: string (ISO 8601 Format), # Optional. This element is present only if the Task was retried (i.e. retryCount is nonzero). If present, this is typically the same as startTime, but may be different if the Task has been restarted for reasons other than retry; for example, if the Compute Node was rebooted during a retry, then the startTime is updated but the lastRetryTime is not.
+        ///     requeueCount: number, # Required. When the user removes Compute Nodes from a Pool (by resizing/shrinking the pool) or when the Job is being disabled, the user can specify that running Tasks on the Compute Nodes be requeued for execution. This count tracks how many times the Task has been requeued for these reasons.
+        ///     lastRequeueTime: string (ISO 8601 Format), # Optional. This property is set only if the requeueCount is nonzero.
+        ///     result: &quot;success&quot; | &quot;failure&quot;, # Optional. If the value is &apos;failed&apos;, then the details of the failure can be found in the failureInfo property.
+        ///   }, # Optional. Information about the execution of a Task.
+        ///   nodeInfo: {
+        ///     affinityId: string, # Optional. An identifier for the Node on which the Task ran, which can be passed when adding a Task to request that the Task be scheduled on this Compute Node.
+        ///     nodeUrl: string, # Optional. The URL of the Compute Node on which the Task ran. 
+        ///     poolId: string, # Optional. The ID of the Pool on which the Task ran.
+        ///     nodeId: string, # Optional. The ID of the Compute Node on which the Task ran.
+        ///     taskRootDirectory: string, # Optional. The root directory of the Task on the Compute Node.
+        ///     taskRootDirectoryUrl: string, # Optional. The URL to the root directory of the Task on the Compute Node.
+        ///   }, # Optional. Information about the Compute Node on which a Task ran.
+        ///   multiInstanceSettings: {
+        ///     numberOfInstances: number, # Optional. If omitted, the default is 1.
+        ///     coordinationCommandLine: string, # Required. A typical coordination command line launches a background service and verifies that the service is ready to process inter-node messages.
+        ///     commonResourceFiles: [ResourceFile], # Optional. The difference between common resource files and Task resource files is that common resource files are downloaded for all subtasks including the primary, whereas Task resource files are downloaded only for the primary. Also note that these resource files are not downloaded to the Task working directory, but instead are downloaded to the Task root directory (one directory above the working directory).  There is a maximum size for the list of resource files.  When the max size is exceeded, the request will fail and the response error code will be RequestEntityTooLarge. If this occurs, the collection of ResourceFiles must be reduced in size. This can be achieved using .zip files, Application Packages, or Docker Containers.
+        ///   }, # Optional. Multi-instance Tasks are commonly used to support MPI Tasks. In the MPI case, if any of the subtasks fail (for example due to exiting with a non-zero exit code) the entire multi-instance Task fails. The multi-instance Task is then terminated and retried, up to its retry limit.
+        ///   stats: {
+        ///     url: string, # Required. The URL of the statistics.
+        ///     startTime: string (ISO 8601 Format), # Required. The start time of the time range covered by the statistics.
+        ///     lastUpdateTime: string (ISO 8601 Format), # Required. The time at which the statistics were last updated. All statistics are limited to the range between startTime and lastUpdateTime.
+        ///     userCPUTime: string (duration ISO 8601 Format), # Required. The total user mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     kernelCPUTime: string (duration ISO 8601 Format), # Required. The total kernel mode CPU time (summed across all cores and all Compute Nodes) consumed by the Task.
+        ///     wallClockTime: string (duration ISO 8601 Format), # Required. The wall clock time is the elapsed time from when the Task started running on a Compute Node to when it finished (or to the last time the statistics were updated, if the Task had not finished by then). If the Task was retried, this includes the wall clock time of all the Task retries.
+        ///     readIOps: number, # Required. The total number of disk read operations made by the Task.
+        ///     writeIOps: number, # Required. The total number of disk write operations made by the Task.
+        ///     readIOGiB: number, # Required. The total gibibytes read from disk by the Task.
+        ///     writeIOGiB: number, # Required. The total gibibytes written to disk by the Task.
+        ///     waitTime: string (duration ISO 8601 Format), # Required. The total wait time of the Task. The wait time for a Task is defined as the elapsed time between the creation of the Task and the start of Task execution. (If the Task is retried due to failures, the wait time is the time to the most recent Task execution.)
+        ///   }, # Optional. Resource usage statistics for a Task.
+        ///   dependsOn: {
+        ///     taskIds: [string], # Optional. The taskIds collection is limited to 64000 characters total (i.e. the combined length of all Task IDs). If the taskIds collection exceeds the maximum length, the Add Task request fails with error code TaskDependencyListTooLong. In this case consider using Task ID ranges instead.
+        ///     taskIdRanges: [
+        ///       {
+        ///         start: number, # Required. The first Task ID in the range.
+        ///         end: number, # Required. The last Task ID in the range.
+        ///       }
+        ///     ], # Optional. The list of Task ID ranges that this Task depends on. All Tasks in all ranges must complete successfully before the dependent Task can be scheduled.
+        ///   }, # Optional. This Task will not be scheduled until all Tasks that it depends on have completed successfully. If any of those Tasks fail and exhaust their retry counts, this Task will never be scheduled.
+        ///   applicationPackageReferences: [
+        ///     {
+        ///       applicationId: string, # Required. The ID of the application to deploy.
+        ///       version: string, # Optional. If this is omitted on a Pool, and no default version is specified for this application, the request fails with the error code InvalidApplicationPackageReferences and HTTP status code 409. If this is omitted on a Task, and no default version is specified for this application, the Task fails with a pre-processing error.
+        ///     }
+        ///   ], # Optional. Application packages are downloaded and deployed to a shared directory, not the Task working directory. Therefore, if a referenced package is already on the Node, and is up to date, then it is not re-downloaded; the existing copy on the Compute Node is used. If a referenced Package cannot be installed, for example because the package has been deleted or because download failed, the Task fails.
+        ///   authenticationTokenSettings: {
+        ///     access: [string], # Optional. The authentication token grants access to a limited set of Batch service operations. Currently the only supported value for the access property is &apos;job&apos;, which grants access to all operations related to the Job which contains the Task.
+        ///   }, # Optional. If this property is set, the Batch service provides the Task with an authentication token which can be used to authenticate Batch service operations without requiring an Account access key. The token is provided via the AZ_BATCH_AUTHENTICATION_TOKEN environment variable. The operations that the Task can carry out using the token depend on the settings. For example, a Task can request Job permissions in order to add other Tasks to the Job, or check the status of the Job or of other Tasks under the Job.
         /// }
         /// </code>
         /// 
@@ -2793,7 +4365,12 @@ namespace Azure.Compute.Batch
         {
             Argument.AssertNotNullOrEmpty(jobId, nameof(jobId));
 
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "TaskClient.GetTasks");
+            return GetTasksImplementation("TaskClient.GetTasks", jobId, filter, select, expand, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetTasksImplementation(string diagnosticsScopeName, string jobId, string filter, string select, string expand, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do

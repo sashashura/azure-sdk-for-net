@@ -36,21 +36,18 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Initializes a new instance of AccountClient. </summary>
+        /// <param name="clientDiagnostics"> The handler for diagnostic messaging in the client. </param>
+        /// <param name="pipeline"> The HTTP pipeline for sending and receiving REST requests and responses. </param>
+        /// <param name="tokenCredential"> The token credential to copy. </param>
         /// <param name="batchUrl"> The base URL for all Azure Batch service requests. </param>
-        /// <param name="credential"> A credential used to authenticate to an Azure Service. </param>
-        /// <param name="options"> The options for configuring the client. </param>
-        /// <exception cref="ArgumentNullException"> <paramref name="batchUrl"/> or <paramref name="credential"/> is null. </exception>
-        public AccountClient(string batchUrl, TokenCredential credential, AzureBatchClientOptions options = null)
+        /// <param name="apiVersion"> Api Version. </param>
+        internal AccountClient(ClientDiagnostics clientDiagnostics, HttpPipeline pipeline, TokenCredential tokenCredential, string batchUrl, string apiVersion)
         {
-            Argument.AssertNotNull(batchUrl, nameof(batchUrl));
-            Argument.AssertNotNull(credential, nameof(credential));
-            options ??= new AzureBatchClientOptions();
-
-            ClientDiagnostics = new ClientDiagnostics(options);
-            _tokenCredential = credential;
-            _pipeline = HttpPipelineBuilder.Build(options, Array.Empty<HttpPipelinePolicy>(), new HttpPipelinePolicy[] { new BearerTokenAuthenticationPolicy(_tokenCredential, AuthorizationScopes) }, new ResponseClassifier());
+            ClientDiagnostics = clientDiagnostics;
+            _pipeline = pipeline;
+            _tokenCredential = tokenCredential;
             _batchUrl = batchUrl;
-            _apiVersion = options.Version;
+            _apiVersion = apiVersion;
         }
 
         /// <summary> Lists all Virtual Machine Images supported by the Azure Batch service. </summary>
@@ -60,50 +57,78 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       nodeAgentSKUId: string,
-        ///       imageReference: {
-        ///         publisher: string,
-        ///         offer: string,
-        ///         sku: string,
-        ///         version: string,
-        ///         virtualMachineImageId: string,
-        ///         exactVersion: string
-        ///       },
-        ///       osType: OSType,
-        ///       capabilities: [string],
-        ///       batchSupportEndOfLife: string (ISO 8601 Format),
-        ///       verificationType: VerificationType
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetSupportedImagesAsync and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetSupportedImagesAsync())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("nodeAgentSKUId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").ToString());
+        ///     Console.WriteLine(result.GetProperty("osType").ToString());
+        ///     Console.WriteLine(result.GetProperty("verificationType").ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetSupportedImagesAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetSupportedImagesAsync("<filter>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("nodeAgentSKUId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("publisher").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("offer").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("sku").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("version").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("virtualMachineImageId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("exactVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("osType").ToString());
+        ///     Console.WriteLine(result.GetProperty("capabilities")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("batchSupportEndOfLife").ToString());
+        ///     Console.WriteLine(result.GetProperty("verificationType").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>AccountListSupportedImagesResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   nodeAgentSKUId: string, # Required. The ID of the Compute Node agent SKU which the Image supports.
+        ///   imageReference: {
+        ///     publisher: string, # Optional. For example, Canonical or MicrosoftWindowsServer.
+        ///     offer: string, # Optional. For example, UbuntuServer or WindowsServer.
+        ///     sku: string, # Optional. For example, 18.04-LTS or 2019-Datacenter.
+        ///     version: string, # Optional. A value of &apos;latest&apos; can be specified to select the latest version of an Image. If omitted, the default is &apos;latest&apos;.
+        ///     virtualMachineImageId: string, # Optional. This property is mutually exclusive with other ImageReference properties. The Shared Image Gallery Image must have replicas in the same region and must be in the same subscription as the Azure Batch account. If the image version is not specified in the imageId, the latest version will be used. For information about the firewall settings for the Batch Compute Node agent to communicate with the Batch service see https://docs.microsoft.com/en-us/azure/batch/batch-api-basics#virtual-network-vnet-and-firewall-configuration.
+        ///     exactVersion: string, # Optional. The specific version of the platform image or marketplace image used to create the node. This read-only field differs from &apos;version&apos; only if the value specified for &apos;version&apos; when the pool was created was &apos;latest&apos;.
+        ///   }, # Required. A reference to an Azure Virtual Machines Marketplace Image or a Shared Image Gallery Image. To get the list of all Azure Marketplace Image references verified by Azure Batch, see the &apos;List Supported Images&apos; operation.
+        ///   osType: &quot;linux&quot; | &quot;windows&quot;, # Required. The type of operating system (e.g. Windows or Linux) of the Image.
+        ///   capabilities: [string], # Optional. Not every capability of the Image is listed. Capabilities in this list are considered of special interest and are generally related to integration with other features in the Azure Batch service.
+        ///   batchSupportEndOfLife: string (ISO 8601 Format), # Optional. The time when the Azure Batch service will stop accepting create Pool requests for the Image.
+        ///   verificationType: &quot;verified&quot; | &quot;unverified&quot;, # Required. Whether the Azure Batch service actively verifies that the Image is compatible with the associated Compute Node agent SKU.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual AsyncPageable<BinaryData> GetSupportedImagesAsync(string filter = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "AccountClient.GetSupportedImages");
+            return GetSupportedImagesImplementationAsync("AccountClient.GetSupportedImages", filter, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetSupportedImagesImplementationAsync(string diagnosticsScopeName, string filter, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -125,50 +150,78 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       nodeAgentSKUId: string,
-        ///       imageReference: {
-        ///         publisher: string,
-        ///         offer: string,
-        ///         sku: string,
-        ///         version: string,
-        ///         virtualMachineImageId: string,
-        ///         exactVersion: string
-        ///       },
-        ///       osType: OSType,
-        ///       capabilities: [string],
-        ///       batchSupportEndOfLife: string (ISO 8601 Format),
-        ///       verificationType: VerificationType
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetSupportedImages and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetSupportedImages())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("nodeAgentSKUId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").ToString());
+        ///     Console.WriteLine(result.GetProperty("osType").ToString());
+        ///     Console.WriteLine(result.GetProperty("verificationType").ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetSupportedImages with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetSupportedImages("<filter>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("nodeAgentSKUId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("publisher").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("offer").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("sku").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("version").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("virtualMachineImageId").ToString());
+        ///     Console.WriteLine(result.GetProperty("imageReference").GetProperty("exactVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("osType").ToString());
+        ///     Console.WriteLine(result.GetProperty("capabilities")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("batchSupportEndOfLife").ToString());
+        ///     Console.WriteLine(result.GetProperty("verificationType").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>AccountListSupportedImagesResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   nodeAgentSKUId: string, # Required. The ID of the Compute Node agent SKU which the Image supports.
+        ///   imageReference: {
+        ///     publisher: string, # Optional. For example, Canonical or MicrosoftWindowsServer.
+        ///     offer: string, # Optional. For example, UbuntuServer or WindowsServer.
+        ///     sku: string, # Optional. For example, 18.04-LTS or 2019-Datacenter.
+        ///     version: string, # Optional. A value of &apos;latest&apos; can be specified to select the latest version of an Image. If omitted, the default is &apos;latest&apos;.
+        ///     virtualMachineImageId: string, # Optional. This property is mutually exclusive with other ImageReference properties. The Shared Image Gallery Image must have replicas in the same region and must be in the same subscription as the Azure Batch account. If the image version is not specified in the imageId, the latest version will be used. For information about the firewall settings for the Batch Compute Node agent to communicate with the Batch service see https://docs.microsoft.com/en-us/azure/batch/batch-api-basics#virtual-network-vnet-and-firewall-configuration.
+        ///     exactVersion: string, # Optional. The specific version of the platform image or marketplace image used to create the node. This read-only field differs from &apos;version&apos; only if the value specified for &apos;version&apos; when the pool was created was &apos;latest&apos;.
+        ///   }, # Required. A reference to an Azure Virtual Machines Marketplace Image or a Shared Image Gallery Image. To get the list of all Azure Marketplace Image references verified by Azure Batch, see the &apos;List Supported Images&apos; operation.
+        ///   osType: &quot;linux&quot; | &quot;windows&quot;, # Required. The type of operating system (e.g. Windows or Linux) of the Image.
+        ///   capabilities: [string], # Optional. Not every capability of the Image is listed. Capabilities in this list are considered of special interest and are generally related to integration with other features in the Azure Batch service.
+        ///   batchSupportEndOfLife: string (ISO 8601 Format), # Optional. The time when the Azure Batch service will stop accepting create Pool requests for the Image.
+        ///   verificationType: &quot;verified&quot; | &quot;unverified&quot;, # Required. Whether the Azure Batch service actively verifies that the Image is compatible with the associated Compute Node agent SKU.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual Pageable<BinaryData> GetSupportedImages(string filter = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "AccountClient.GetSupportedImages");
+            return GetSupportedImagesImplementation("AccountClient.GetSupportedImages", filter, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetSupportedImagesImplementation(string diagnosticsScopeName, string filter, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do
@@ -190,55 +243,98 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       poolId: string,
-        ///       dedicated: {
-        ///         creating: number,
-        ///         idle: number,
-        ///         offline: number,
-        ///         preempted: number,
-        ///         rebooting: number,
-        ///         reimaging: number,
-        ///         running: number,
-        ///         starting: number,
-        ///         startTaskFailed: number,
-        ///         leavingPool: number,
-        ///         unknown: number,
-        ///         unusable: number,
-        ///         waitingForStartTask: number,
-        ///         total: number
-        ///       },
-        ///       lowPriority: NodeCounts
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetPoolNodeCountsAsync and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetPoolNodeCountsAsync())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("poolId").ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetPoolNodeCountsAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetPoolNodeCountsAsync("<filter>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("poolId").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("creating").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("idle").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("offline").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("preempted").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("rebooting").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("reimaging").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("running").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("starting").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("startTaskFailed").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("leavingPool").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("unknown").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("unusable").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("waitingForStartTask").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("total").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("creating").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("idle").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("offline").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("preempted").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("rebooting").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("reimaging").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("running").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("starting").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("startTaskFailed").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("leavingPool").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("unknown").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("unusable").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("waitingForStartTask").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("total").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>PoolNodeCountsListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   poolId: string, # Required. The ID of the Pool.
+        ///   dedicated: {
+        ///     creating: number, # Required. The number of Compute Nodes in the creating state.
+        ///     idle: number, # Required. The number of Compute Nodes in the idle state.
+        ///     offline: number, # Required. The number of Compute Nodes in the offline state.
+        ///     preempted: number, # Required. The number of Compute Nodes in the preempted state.
+        ///     rebooting: number, # Required. The count of Compute Nodes in the rebooting state.
+        ///     reimaging: number, # Required. The number of Compute Nodes in the reimaging state.
+        ///     running: number, # Required. The number of Compute Nodes in the running state.
+        ///     starting: number, # Required. The number of Compute Nodes in the starting state.
+        ///     startTaskFailed: number, # Required. The number of Compute Nodes in the startTaskFailed state.
+        ///     leavingPool: number, # Required. The number of Compute Nodes in the leavingPool state.
+        ///     unknown: number, # Required. The number of Compute Nodes in the unknown state.
+        ///     unusable: number, # Required. The number of Compute Nodes in the unusable state.
+        ///     waitingForStartTask: number, # Required. The number of Compute Nodes in the waitingForStartTask state.
+        ///     total: number, # Required. The total number of Compute Nodes.
+        ///   }, # Optional. The number of Compute Nodes in each Compute Node state.
+        ///   lowPriority: NodeCounts, # Optional. The number of Compute Nodes in each Compute Node state.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual AsyncPageable<BinaryData> GetPoolNodeCountsAsync(string filter = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "AccountClient.GetPoolNodeCounts");
+            return GetPoolNodeCountsImplementationAsync("AccountClient.GetPoolNodeCounts", filter, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetPoolNodeCountsImplementationAsync(string diagnosticsScopeName, string filter, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -260,55 +356,98 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       poolId: string,
-        ///       dedicated: {
-        ///         creating: number,
-        ///         idle: number,
-        ///         offline: number,
-        ///         preempted: number,
-        ///         rebooting: number,
-        ///         reimaging: number,
-        ///         running: number,
-        ///         starting: number,
-        ///         startTaskFailed: number,
-        ///         leavingPool: number,
-        ///         unknown: number,
-        ///         unusable: number,
-        ///         waitingForStartTask: number,
-        ///         total: number
-        ///       },
-        ///       lowPriority: NodeCounts
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetPoolNodeCounts and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetPoolNodeCounts())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("poolId").ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetPoolNodeCounts with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetAccountClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetPoolNodeCounts("<filter>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("poolId").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("creating").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("idle").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("offline").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("preempted").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("rebooting").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("reimaging").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("running").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("starting").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("startTaskFailed").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("leavingPool").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("unknown").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("unusable").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("waitingForStartTask").ToString());
+        ///     Console.WriteLine(result.GetProperty("dedicated").GetProperty("total").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("creating").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("idle").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("offline").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("preempted").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("rebooting").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("reimaging").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("running").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("starting").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("startTaskFailed").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("leavingPool").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("unknown").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("unusable").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("waitingForStartTask").ToString());
+        ///     Console.WriteLine(result.GetProperty("lowPriority").GetProperty("total").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>PoolNodeCountsListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   poolId: string, # Required. The ID of the Pool.
+        ///   dedicated: {
+        ///     creating: number, # Required. The number of Compute Nodes in the creating state.
+        ///     idle: number, # Required. The number of Compute Nodes in the idle state.
+        ///     offline: number, # Required. The number of Compute Nodes in the offline state.
+        ///     preempted: number, # Required. The number of Compute Nodes in the preempted state.
+        ///     rebooting: number, # Required. The count of Compute Nodes in the rebooting state.
+        ///     reimaging: number, # Required. The number of Compute Nodes in the reimaging state.
+        ///     running: number, # Required. The number of Compute Nodes in the running state.
+        ///     starting: number, # Required. The number of Compute Nodes in the starting state.
+        ///     startTaskFailed: number, # Required. The number of Compute Nodes in the startTaskFailed state.
+        ///     leavingPool: number, # Required. The number of Compute Nodes in the leavingPool state.
+        ///     unknown: number, # Required. The number of Compute Nodes in the unknown state.
+        ///     unusable: number, # Required. The number of Compute Nodes in the unusable state.
+        ///     waitingForStartTask: number, # Required. The number of Compute Nodes in the waitingForStartTask state.
+        ///     total: number, # Required. The total number of Compute Nodes.
+        ///   }, # Optional. The number of Compute Nodes in each Compute Node state.
+        ///   lowPriority: NodeCounts, # Optional. The number of Compute Nodes in each Compute Node state.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual Pageable<BinaryData> GetPoolNodeCounts(string filter = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "AccountClient.GetPoolNodeCounts");
+            return GetPoolNodeCountsImplementation("AccountClient.GetPoolNodeCounts", filter, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetPoolNodeCountsImplementation(string diagnosticsScopeName, string filter, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do

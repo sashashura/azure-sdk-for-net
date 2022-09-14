@@ -37,53 +37,69 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Initializes a new instance of ApplicationClient. </summary>
+        /// <param name="clientDiagnostics"> The handler for diagnostic messaging in the client. </param>
+        /// <param name="pipeline"> The HTTP pipeline for sending and receiving REST requests and responses. </param>
+        /// <param name="tokenCredential"> The token credential to copy. </param>
         /// <param name="batchUrl"> The base URL for all Azure Batch service requests. </param>
-        /// <param name="credential"> A credential used to authenticate to an Azure Service. </param>
-        /// <param name="options"> The options for configuring the client. </param>
-        /// <exception cref="ArgumentNullException"> <paramref name="batchUrl"/> or <paramref name="credential"/> is null. </exception>
-        public ApplicationClient(string batchUrl, TokenCredential credential, AzureBatchClientOptions options = null)
+        /// <param name="apiVersion"> Api Version. </param>
+        internal ApplicationClient(ClientDiagnostics clientDiagnostics, HttpPipeline pipeline, TokenCredential tokenCredential, string batchUrl, string apiVersion)
         {
-            Argument.AssertNotNull(batchUrl, nameof(batchUrl));
-            Argument.AssertNotNull(credential, nameof(credential));
-            options ??= new AzureBatchClientOptions();
-
-            ClientDiagnostics = new ClientDiagnostics(options);
-            _tokenCredential = credential;
-            _pipeline = HttpPipelineBuilder.Build(options, Array.Empty<HttpPipelinePolicy>(), new HttpPipelinePolicy[] { new BearerTokenAuthenticationPolicy(_tokenCredential, AuthorizationScopes) }, new ResponseClassifier());
+            ClientDiagnostics = clientDiagnostics;
+            _pipeline = pipeline;
+            _tokenCredential = tokenCredential;
             _batchUrl = batchUrl;
-            _apiVersion = options.Version;
+            _apiVersion = apiVersion;
         }
 
-        /// <summary> This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about Applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API. </summary>
+        /// <summary> Gets information about the specified Application. </summary>
         /// <param name="applicationId"> The ID of the Application. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="applicationId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="applicationId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetApplicationAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetApplicationAsync("<applicationId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetApplicationAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetApplicationAsync("<applicationId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about Applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Application</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   versions: [string]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   id: string, # Required. A string that uniquely identifies the application within the Account.
+        ///   displayName: string, # Required. The display name for the application.
+        ///   versions: [string], # Required. The list of available versions of the application.
         /// }
         /// </code>
         /// 
@@ -106,36 +122,55 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about Applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API. </summary>
+        /// <summary> Gets information about the specified Application. </summary>
         /// <param name="applicationId"> The ID of the Application. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="applicationId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="applicationId"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetApplication with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetApplication("<applicationId>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetApplication with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetApplication("<applicationId>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("id").ToString());
+        /// Console.WriteLine(result.GetProperty("displayName").ToString());
+        /// Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about Applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API.
+        /// 
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Application</c>:
         /// <code>{
-        ///   id: string,
-        ///   displayName: string,
-        ///   versions: [string]
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   id: string, # Required. A string that uniquely identifies the application within the Account.
+        ///   displayName: string, # Required. The display name for the application.
+        ///   versions: [string], # Required. The list of available versions of the application.
         /// }
         /// </code>
         /// 
@@ -158,46 +193,67 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API. </summary>
+        /// <summary> Lists all of the applications available in the specified Account. </summary>
         /// <param name="maxResults"> The maximum number of items to return in the response. A maximum of 1000 applications can be returned. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       versions: [string]
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetApplicationsAsync and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetApplicationsAsync())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("versions")[0].ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetApplicationsAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetApplicationsAsync(1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API.
+        /// 
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>ApplicationListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   id: string, # Required. A string that uniquely identifies the application within the Account.
+        ///   displayName: string, # Required. The display name for the application.
+        ///   versions: [string], # Required. The list of available versions of the application.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual AsyncPageable<BinaryData> GetApplicationsAsync(int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "ApplicationClient.GetApplications");
+            return GetApplicationsImplementationAsync("ApplicationClient.GetApplications", maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetApplicationsImplementationAsync(string diagnosticsScopeName, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -212,46 +268,67 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API. </summary>
+        /// <summary> Lists all of the applications available in the specified Account. </summary>
         /// <param name="maxResults"> The maximum number of items to return in the response. A maximum of 1000 applications can be returned. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       id: string,
-        ///       displayName: string,
-        ///       versions: [string]
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetApplications and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetApplications())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("versions")[0].ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetApplications with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetApplicationClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetApplications(1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("id").ToString());
+        ///     Console.WriteLine(result.GetProperty("displayName").ToString());
+        ///     Console.WriteLine(result.GetProperty("versions")[0].ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// This operation returns only Applications and versions that are available for use on Compute Nodes; that is, that can be used in an Package reference. For administrator information about applications and versions that are not yet available to Compute Nodes, use the Azure portal or the Azure Resource Manager API.
+        /// 
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>ApplicationListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   id: string, # Required. A string that uniquely identifies the application within the Account.
+        ///   displayName: string, # Required. The display name for the application.
+        ///   versions: [string], # Required. The list of available versions of the application.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual Pageable<BinaryData> GetApplications(int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "ApplicationClient.GetApplications");
+            return GetApplicationsImplementation("ApplicationClient.GetApplications", maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetApplicationsImplementation(string diagnosticsScopeName, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do

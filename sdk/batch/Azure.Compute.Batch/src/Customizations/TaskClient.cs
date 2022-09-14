@@ -12,6 +12,7 @@ using Azure.Compute.Batch;
 
 namespace Azure.Compute.Batch
 {
+    [CodeGenModel("Task")]
     public partial class TaskClient : BaseClient
     {
         public const int MaxAddTasks = 100;

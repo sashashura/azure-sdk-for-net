@@ -10,6 +10,7 @@ using Azure.Compute.Batch.Models;
 
 namespace Azure.Compute.Batch
 {
+    [CodeGenModel("Pool")]
     public partial class PoolClient : BaseClient
     {
         public virtual Response<Pool> GetPool(string poolId, GetOptions options = null)

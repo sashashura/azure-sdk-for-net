@@ -37,21 +37,18 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Initializes a new instance of ComputeNodeExtensionClient. </summary>
+        /// <param name="clientDiagnostics"> The handler for diagnostic messaging in the client. </param>
+        /// <param name="pipeline"> The HTTP pipeline for sending and receiving REST requests and responses. </param>
+        /// <param name="tokenCredential"> The token credential to copy. </param>
         /// <param name="batchUrl"> The base URL for all Azure Batch service requests. </param>
-        /// <param name="credential"> A credential used to authenticate to an Azure Service. </param>
-        /// <param name="options"> The options for configuring the client. </param>
-        /// <exception cref="ArgumentNullException"> <paramref name="batchUrl"/> or <paramref name="credential"/> is null. </exception>
-        public ComputeNodeExtensionClient(string batchUrl, TokenCredential credential, AzureBatchClientOptions options = null)
+        /// <param name="apiVersion"> Api Version. </param>
+        internal ComputeNodeExtensionClient(ClientDiagnostics clientDiagnostics, HttpPipeline pipeline, TokenCredential tokenCredential, string batchUrl, string apiVersion)
         {
-            Argument.AssertNotNull(batchUrl, nameof(batchUrl));
-            Argument.AssertNotNull(credential, nameof(credential));
-            options ??= new AzureBatchClientOptions();
-
-            ClientDiagnostics = new ClientDiagnostics(options);
-            _tokenCredential = credential;
-            _pipeline = HttpPipelineBuilder.Build(options, Array.Empty<HttpPipelinePolicy>(), new HttpPipelinePolicy[] { new BearerTokenAuthenticationPolicy(_tokenCredential, AuthorizationScopes) }, new ResponseClassifier());
+            ClientDiagnostics = clientDiagnostics;
+            _pipeline = pipeline;
+            _tokenCredential = tokenCredential;
             _batchUrl = batchUrl;
-            _apiVersion = options.Version;
+            _apiVersion = apiVersion;
         }
 
         /// <summary> Gets information about the specified Compute Node Extension. </summary>
@@ -63,51 +60,83 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="poolId"/>, <paramref name="nodeId"/> or <paramref name="extensionName"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="poolId"/>, <paramref name="nodeId"/> or <paramref name="extensionName"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetComputeNodeExtensionAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetComputeNodeExtensionAsync("<poolId>", "<nodeId>", "<extensionName>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetComputeNodeExtensionAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetComputeNodeExtensionAsync("<poolId>", "<nodeId>", "<extensionName>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("provisioningState").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("publisher").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("type").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("typeHandlerVersion").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("autoUpgradeMinorVersion").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("settings").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("protectedSettings").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("provisionAfterExtensions")[0].ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("displayStatus").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("level").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("time").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("displayStatus").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("level").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("time").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>NodeVMExtension</c>:
         /// <code>{
-        ///   provisioningState: string,
+        ///   provisioningState: string, # Optional. The provisioning state of the virtual machine extension.
         ///   vmExtension: {
-        ///     name: string,
-        ///     publisher: string,
-        ///     type: string,
-        ///     typeHandlerVersion: string,
-        ///     autoUpgradeMinorVersion: boolean,
-        ///     settings: AnyObject,
-        ///     protectedSettings: AnyObject,
-        ///     provisionAfterExtensions: [string]
-        ///   },
+        ///     name: string, # Required. The name of the virtual machine extension.
+        ///     publisher: string, # Required. The name of the extension handler publisher.
+        ///     type: string, # Required. The type of the extension.
+        ///     typeHandlerVersion: string, # Optional. The version of script handler.
+        ///     autoUpgradeMinorVersion: boolean, # Optional. Indicates whether the extension should use a newer minor version if one is available at deployment time. Once deployed, however, the extension will not upgrade minor versions unless redeployed, even with this property set to true.
+        ///     settings: AnyObject, # Optional. JSON formatted public settings for the extension.
+        ///     protectedSettings: AnyObject, # Optional. The extension can contain either protectedSettings or protectedSettingsFromKeyVault or no protected settings at all. 
+        ///     provisionAfterExtensions: [string], # Optional. Collection of extension names after which this extension needs to be provisioned.
+        ///   }, # Optional. The configuration for virtual machine extensions.
         ///   instanceView: {
-        ///     name: string,
+        ///     name: string, # Optional. The name of the vm extension instance view.
         ///     statuses: [
         ///       {
-        ///         code: string,
-        ///         displayStatus: string,
-        ///         level: StatusLevelTypes,
-        ///         message: string,
-        ///         time: string
+        ///         code: string, # Optional. The status code.
+        ///         displayStatus: string, # Optional. The localized label for the status.
+        ///         level: &quot;Error&quot; | &quot;Info&quot; | &quot;Warning&quot;, # Optional. Level code.
+        ///         message: string, # Optional. The detailed status message.
+        ///         time: string, # Optional. The time of the status.
         ///       }
-        ///     ],
-        ///     subStatuses: [InstanceViewStatus]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     ], # Optional. The resource status information.
+        ///     subStatuses: [InstanceViewStatus], # Optional. The resource status information.
+        ///   }, # Optional. The vm extension instance view.
         /// }
         /// </code>
         /// 
@@ -141,51 +170,83 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="poolId"/>, <paramref name="nodeId"/> or <paramref name="extensionName"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="poolId"/>, <paramref name="nodeId"/> or <paramref name="extensionName"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetComputeNodeExtension with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetComputeNodeExtension("<poolId>", "<nodeId>", "<extensionName>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetComputeNodeExtension with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetComputeNodeExtension("<poolId>", "<nodeId>", "<extensionName>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("provisioningState").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("publisher").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("type").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("typeHandlerVersion").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("autoUpgradeMinorVersion").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("settings").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("protectedSettings").ToString());
+        /// Console.WriteLine(result.GetProperty("vmExtension").GetProperty("provisionAfterExtensions")[0].ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("displayStatus").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("level").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("time").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("displayStatus").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("level").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("time").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>NodeVMExtension</c>:
         /// <code>{
-        ///   provisioningState: string,
+        ///   provisioningState: string, # Optional. The provisioning state of the virtual machine extension.
         ///   vmExtension: {
-        ///     name: string,
-        ///     publisher: string,
-        ///     type: string,
-        ///     typeHandlerVersion: string,
-        ///     autoUpgradeMinorVersion: boolean,
-        ///     settings: AnyObject,
-        ///     protectedSettings: AnyObject,
-        ///     provisionAfterExtensions: [string]
-        ///   },
+        ///     name: string, # Required. The name of the virtual machine extension.
+        ///     publisher: string, # Required. The name of the extension handler publisher.
+        ///     type: string, # Required. The type of the extension.
+        ///     typeHandlerVersion: string, # Optional. The version of script handler.
+        ///     autoUpgradeMinorVersion: boolean, # Optional. Indicates whether the extension should use a newer minor version if one is available at deployment time. Once deployed, however, the extension will not upgrade minor versions unless redeployed, even with this property set to true.
+        ///     settings: AnyObject, # Optional. JSON formatted public settings for the extension.
+        ///     protectedSettings: AnyObject, # Optional. The extension can contain either protectedSettings or protectedSettingsFromKeyVault or no protected settings at all. 
+        ///     provisionAfterExtensions: [string], # Optional. Collection of extension names after which this extension needs to be provisioned.
+        ///   }, # Optional. The configuration for virtual machine extensions.
         ///   instanceView: {
-        ///     name: string,
+        ///     name: string, # Optional. The name of the vm extension instance view.
         ///     statuses: [
         ///       {
-        ///         code: string,
-        ///         displayStatus: string,
-        ///         level: StatusLevelTypes,
-        ///         message: string,
-        ///         time: string
+        ///         code: string, # Optional. The status code.
+        ///         displayStatus: string, # Optional. The localized label for the status.
+        ///         level: &quot;Error&quot; | &quot;Info&quot; | &quot;Warning&quot;, # Optional. Level code.
+        ///         message: string, # Optional. The detailed status message.
+        ///         time: string, # Optional. The time of the status.
         ///       }
-        ///     ],
-        ///     subStatuses: [InstanceViewStatus]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     ], # Optional. The resource status information.
+        ///     subStatuses: [InstanceViewStatus], # Optional. The resource status information.
+        ///   }, # Optional. The vm extension instance view.
         /// }
         /// </code>
         /// 
@@ -219,56 +280,85 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="poolId"/> or <paramref name="nodeId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="poolId"/> or <paramref name="nodeId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       provisioningState: string,
-        ///       vmExtension: {
-        ///         name: string,
-        ///         publisher: string,
-        ///         type: string,
-        ///         typeHandlerVersion: string,
-        ///         autoUpgradeMinorVersion: boolean,
-        ///         settings: AnyObject,
-        ///         protectedSettings: AnyObject,
-        ///         provisionAfterExtensions: [string]
-        ///       },
-        ///       instanceView: {
-        ///         name: string,
-        ///         statuses: [
-        ///           {
-        ///             code: string,
-        ///             displayStatus: string,
-        ///             level: StatusLevelTypes,
-        ///             message: string,
-        ///             time: string
-        ///           }
-        ///         ],
-        ///         subStatuses: [InstanceViewStatus]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetComputeNodeExtensionsAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetComputeNodeExtensionsAsync("<poolId>", "<nodeId>"))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetComputeNodeExtensionsAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetComputeNodeExtensionsAsync("<poolId>", "<nodeId>", "<select>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("provisioningState").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("publisher").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("type").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("typeHandlerVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("autoUpgradeMinorVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("settings").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("protectedSettings").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("provisionAfterExtensions")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("displayStatus").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("level").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("time").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("displayStatus").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("level").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("time").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>NodeVMExtensionListValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   provisioningState: string, # Optional. The provisioning state of the virtual machine extension.
+        ///   vmExtension: {
+        ///     name: string, # Required. The name of the virtual machine extension.
+        ///     publisher: string, # Required. The name of the extension handler publisher.
+        ///     type: string, # Required. The type of the extension.
+        ///     typeHandlerVersion: string, # Optional. The version of script handler.
+        ///     autoUpgradeMinorVersion: boolean, # Optional. Indicates whether the extension should use a newer minor version if one is available at deployment time. Once deployed, however, the extension will not upgrade minor versions unless redeployed, even with this property set to true.
+        ///     settings: AnyObject, # Optional. JSON formatted public settings for the extension.
+        ///     protectedSettings: AnyObject, # Optional. The extension can contain either protectedSettings or protectedSettingsFromKeyVault or no protected settings at all. 
+        ///     provisionAfterExtensions: [string], # Optional. Collection of extension names after which this extension needs to be provisioned.
+        ///   }, # Optional. The configuration for virtual machine extensions.
+        ///   instanceView: {
+        ///     name: string, # Optional. The name of the vm extension instance view.
+        ///     statuses: [
+        ///       {
+        ///         code: string, # Optional. The status code.
+        ///         displayStatus: string, # Optional. The localized label for the status.
+        ///         level: &quot;Error&quot; | &quot;Info&quot; | &quot;Warning&quot;, # Optional. Level code.
+        ///         message: string, # Optional. The detailed status message.
+        ///         time: string, # Optional. The time of the status.
+        ///       }
+        ///     ], # Optional. The resource status information.
+        ///     subStatuses: [InstanceViewStatus], # Optional. The resource status information.
+        ///   }, # Optional. The vm extension instance view.
         /// }
         /// </code>
         /// 
@@ -278,7 +368,12 @@ namespace Azure.Compute.Batch
             Argument.AssertNotNullOrEmpty(poolId, nameof(poolId));
             Argument.AssertNotNullOrEmpty(nodeId, nameof(nodeId));
 
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "ComputeNodeExtensionClient.GetComputeNodeExtensions");
+            return GetComputeNodeExtensionsImplementationAsync("ComputeNodeExtensionClient.GetComputeNodeExtensions", poolId, nodeId, select, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetComputeNodeExtensionsImplementationAsync(string diagnosticsScopeName, string poolId, string nodeId, string select, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -302,56 +397,85 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="poolId"/> or <paramref name="nodeId"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="poolId"/> or <paramref name="nodeId"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       provisioningState: string,
-        ///       vmExtension: {
-        ///         name: string,
-        ///         publisher: string,
-        ///         type: string,
-        ///         typeHandlerVersion: string,
-        ///         autoUpgradeMinorVersion: boolean,
-        ///         settings: AnyObject,
-        ///         protectedSettings: AnyObject,
-        ///         provisionAfterExtensions: [string]
-        ///       },
-        ///       instanceView: {
-        ///         name: string,
-        ///         statuses: [
-        ///           {
-        ///             code: string,
-        ///             displayStatus: string,
-        ///             level: StatusLevelTypes,
-        ///             message: string,
-        ///             time: string
-        ///           }
-        ///         ],
-        ///         subStatuses: [InstanceViewStatus]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetComputeNodeExtensions with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetComputeNodeExtensions("<poolId>", "<nodeId>"))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetComputeNodeExtensions with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetComputeNodeExtensionClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetComputeNodeExtensions("<poolId>", "<nodeId>", "<select>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("provisioningState").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("publisher").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("type").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("typeHandlerVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("autoUpgradeMinorVersion").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("settings").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("protectedSettings").ToString());
+        ///     Console.WriteLine(result.GetProperty("vmExtension").GetProperty("provisionAfterExtensions")[0].ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("displayStatus").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("level").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("statuses")[0].GetProperty("time").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("displayStatus").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("level").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("instanceView").GetProperty("subStatuses")[0].GetProperty("time").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>NodeVMExtensionListValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   provisioningState: string, # Optional. The provisioning state of the virtual machine extension.
+        ///   vmExtension: {
+        ///     name: string, # Required. The name of the virtual machine extension.
+        ///     publisher: string, # Required. The name of the extension handler publisher.
+        ///     type: string, # Required. The type of the extension.
+        ///     typeHandlerVersion: string, # Optional. The version of script handler.
+        ///     autoUpgradeMinorVersion: boolean, # Optional. Indicates whether the extension should use a newer minor version if one is available at deployment time. Once deployed, however, the extension will not upgrade minor versions unless redeployed, even with this property set to true.
+        ///     settings: AnyObject, # Optional. JSON formatted public settings for the extension.
+        ///     protectedSettings: AnyObject, # Optional. The extension can contain either protectedSettings or protectedSettingsFromKeyVault or no protected settings at all. 
+        ///     provisionAfterExtensions: [string], # Optional. Collection of extension names after which this extension needs to be provisioned.
+        ///   }, # Optional. The configuration for virtual machine extensions.
+        ///   instanceView: {
+        ///     name: string, # Optional. The name of the vm extension instance view.
+        ///     statuses: [
+        ///       {
+        ///         code: string, # Optional. The status code.
+        ///         displayStatus: string, # Optional. The localized label for the status.
+        ///         level: &quot;Error&quot; | &quot;Info&quot; | &quot;Warning&quot;, # Optional. Level code.
+        ///         message: string, # Optional. The detailed status message.
+        ///         time: string, # Optional. The time of the status.
+        ///       }
+        ///     ], # Optional. The resource status information.
+        ///     subStatuses: [InstanceViewStatus], # Optional. The resource status information.
+        ///   }, # Optional. The vm extension instance view.
         /// }
         /// </code>
         /// 
@@ -361,7 +485,12 @@ namespace Azure.Compute.Batch
             Argument.AssertNotNullOrEmpty(poolId, nameof(poolId));
             Argument.AssertNotNullOrEmpty(nodeId, nameof(nodeId));
 
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "ComputeNodeExtensionClient.GetComputeNodeExtensions");
+            return GetComputeNodeExtensionsImplementation("ComputeNodeExtensionClient.GetComputeNodeExtensions", poolId, nodeId, select, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetComputeNodeExtensionsImplementation(string diagnosticsScopeName, string poolId, string nodeId, string select, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do

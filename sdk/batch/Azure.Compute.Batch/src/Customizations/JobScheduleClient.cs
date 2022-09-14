@@ -10,6 +10,7 @@ using Azure.Compute.Batch.Models;
 
 namespace Azure.Compute.Batch
 {
+    [CodeGenModel("JobSchedule")]
     public partial class JobScheduleClient : BaseClient
     {
         public virtual Response<JobSchedule> GetJobSchedule(string jobScheduleId, GetOptions options = null)

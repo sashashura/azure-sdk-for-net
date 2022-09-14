@@ -37,54 +37,74 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Initializes a new instance of CertificateClient. </summary>
+        /// <param name="clientDiagnostics"> The handler for diagnostic messaging in the client. </param>
+        /// <param name="pipeline"> The HTTP pipeline for sending and receiving REST requests and responses. </param>
+        /// <param name="tokenCredential"> The token credential to copy. </param>
         /// <param name="batchUrl"> The base URL for all Azure Batch service requests. </param>
-        /// <param name="credential"> A credential used to authenticate to an Azure Service. </param>
-        /// <param name="options"> The options for configuring the client. </param>
-        /// <exception cref="ArgumentNullException"> <paramref name="batchUrl"/> or <paramref name="credential"/> is null. </exception>
-        public CertificateClient(string batchUrl, TokenCredential credential, AzureBatchClientOptions options = null)
+        /// <param name="apiVersion"> Api Version. </param>
+        internal CertificateClient(ClientDiagnostics clientDiagnostics, HttpPipeline pipeline, TokenCredential tokenCredential, string batchUrl, string apiVersion)
         {
-            Argument.AssertNotNull(batchUrl, nameof(batchUrl));
-            Argument.AssertNotNull(credential, nameof(credential));
-            options ??= new AzureBatchClientOptions();
-
-            ClientDiagnostics = new ClientDiagnostics(options);
-            _tokenCredential = credential;
-            _pipeline = HttpPipelineBuilder.Build(options, Array.Empty<HttpPipelinePolicy>(), new HttpPipelinePolicy[] { new BearerTokenAuthenticationPolicy(_tokenCredential, AuthorizationScopes) }, new ResponseClassifier());
+            ClientDiagnostics = clientDiagnostics;
+            _pipeline = pipeline;
+            _tokenCredential = tokenCredential;
             _batchUrl = batchUrl;
-            _apiVersion = options.Version;
+            _apiVersion = apiVersion;
         }
 
         /// <summary> Adds a Certificate to the specified Account. </summary>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="content"/> is null. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call AddAsync with required parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     thumbprint = "<thumbprint>",
+        ///     thumbprintAlgorithm = "<thumbprintAlgorithm>",
+        ///     data = "<data>",
+        /// };
+        /// 
+        /// Response response = await client.AddAsync(RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call AddAsync with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     thumbprint = "<thumbprint>",
+        ///     thumbprintAlgorithm = "<thumbprintAlgorithm>",
+        ///     data = "<data>",
+        ///     certificateFormat = "pfx",
+        ///     password = "<password>",
+        /// };
+        /// 
+        /// Response response = await client.AddAsync(RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>CertificateAddParameter</c>:
         /// <code>{
-        ///   thumbprint: string (required),
-        ///   thumbprintAlgorithm: string (required),
-        ///   data: string (required),
-        ///   certificateFormat: CertificateFormat,
-        ///   password: string
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   thumbprint: string, # Required. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits (it may include spaces but these are removed).
+        ///   thumbprintAlgorithm: string, # Required. The algorithm used to derive the thumbprint. This must be sha1.
+        ///   data: string, # Required. The base64-encoded contents of the Certificate. The maximum size is 10KB.
+        ///   certificateFormat: &quot;pfx&quot; | &quot;cer&quot;, # Optional. The format of the Certificate data.
+        ///   password: string, # Optional. This must be omitted if the Certificate format is cer.
         /// }
         /// </code>
         /// 
@@ -108,36 +128,59 @@ namespace Azure.Compute.Batch
         }
 
         /// <summary> Adds a Certificate to the specified Account. </summary>
-        /// <param name="content"> The content to send as the body of the request. </param>
+        /// <param name="content"> The content to send as the body of the request. Details of the request body schema are in the Remarks section below. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="content"/> is null. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Add with required parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     thumbprint = "<thumbprint>",
+        ///     thumbprintAlgorithm = "<thumbprintAlgorithm>",
+        ///     data = "<data>",
+        /// };
+        /// 
+        /// Response response = client.Add(RequestContent.Create(data));
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Add with all parameters and request content.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// var data = new {
+        ///     thumbprint = "<thumbprint>",
+        ///     thumbprintAlgorithm = "<thumbprintAlgorithm>",
+        ///     data = "<data>",
+        ///     certificateFormat = "pfx",
+        ///     password = "<password>",
+        /// };
+        /// 
+        /// Response response = client.Add(RequestContent.Create(data), 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Request Body</c>:
+        /// Below is the JSON schema for the request payload.
+        /// 
+        /// Request Body:
+        /// 
+        /// Schema for <c>CertificateAddParameter</c>:
         /// <code>{
-        ///   thumbprint: string (required),
-        ///   thumbprintAlgorithm: string (required),
-        ///   data: string (required),
-        ///   certificateFormat: CertificateFormat,
-        ///   password: string
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   thumbprint: string, # Required. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits (it may include spaces but these are removed).
+        ///   thumbprintAlgorithm: string, # Required. The algorithm used to derive the thumbprint. This must be sha1.
+        ///   data: string, # Required. The base64-encoded contents of the Certificate. The maximum size is 10KB.
+        ///   certificateFormat: &quot;pfx&quot; | &quot;cer&quot;, # Optional. The format of the Certificate data.
+        ///   password: string, # Optional. This must be omitted if the Certificate format is cer.
         /// }
         /// </code>
         /// 
@@ -160,34 +203,37 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> If you try to delete a Certificate that is being used by a Pool or Compute Node, the status of the Certificate changes to deleteFailed. If you decide that you want to continue using the Certificate, you can use this operation to set the status of the Certificate back to active. If you intend to delete the Certificate, you do not need to run this operation after the deletion failed. You must make sure that the Certificate is not being used by any resources, and then you can try again to delete the Certificate. </summary>
+        /// <summary> Cancels a failed deletion of a Certificate from the specified Account. </summary>
         /// <param name="thumbprintAlgorithm"> The algorithm used to derive the thumbprint parameter. This must be sha1. </param>
         /// <param name="thumbprint"> The thumbprint of the Certificate being deleted. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call CancelDeletionAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = await client.CancelDeletionAsync("<thumbprintAlgorithm>", "<thumbprint>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call CancelDeletionAsync with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.CancelDeletionAsync("<thumbprintAlgorithm>", "<thumbprint>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> If you try to delete a Certificate that is being used by a Pool or Compute Node, the status of the Certificate changes to deleteFailed. If you decide that you want to continue using the Certificate, you can use this operation to set the status of the Certificate back to active. If you intend to delete the Certificate, you do not need to run this operation after the deletion failed. You must make sure that the Certificate is not being used by any resources, and then you can try again to delete the Certificate. </remarks>
         public virtual async Task<Response> CancelDeletionAsync(string thumbprintAlgorithm, string thumbprint, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(thumbprintAlgorithm, nameof(thumbprintAlgorithm));
@@ -207,34 +253,37 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> If you try to delete a Certificate that is being used by a Pool or Compute Node, the status of the Certificate changes to deleteFailed. If you decide that you want to continue using the Certificate, you can use this operation to set the status of the Certificate back to active. If you intend to delete the Certificate, you do not need to run this operation after the deletion failed. You must make sure that the Certificate is not being used by any resources, and then you can try again to delete the Certificate. </summary>
+        /// <summary> Cancels a failed deletion of a Certificate from the specified Account. </summary>
         /// <param name="thumbprintAlgorithm"> The algorithm used to derive the thumbprint parameter. This must be sha1. </param>
         /// <param name="thumbprint"> The thumbprint of the Certificate being deleted. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call CancelDeletion with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = client.CancelDeletion("<thumbprintAlgorithm>", "<thumbprint>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call CancelDeletion with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.CancelDeletion("<thumbprintAlgorithm>", "<thumbprint>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> If you try to delete a Certificate that is being used by a Pool or Compute Node, the status of the Certificate changes to deleteFailed. If you decide that you want to continue using the Certificate, you can use this operation to set the status of the Certificate back to active. If you intend to delete the Certificate, you do not need to run this operation after the deletion failed. You must make sure that the Certificate is not being used by any resources, and then you can try again to delete the Certificate. </remarks>
         public virtual Response CancelDeletion(string thumbprintAlgorithm, string thumbprint, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(thumbprintAlgorithm, nameof(thumbprintAlgorithm));
@@ -254,34 +303,37 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> You cannot delete a Certificate if a resource (Pool or Compute Node) is using it. Before you can delete a Certificate, you must therefore make sure that the Certificate is not associated with any existing Pools, the Certificate is not installed on any Nodes (even if you remove a Certificate from a Pool, it is not removed from existing Compute Nodes in that Pool until they restart), and no running Tasks depend on the Certificate. If you try to delete a Certificate that is in use, the deletion fails. The Certificate status changes to deleteFailed. You can use Cancel Delete Certificate to set the status back to active if you decide that you want to continue using the Certificate. </summary>
+        /// <summary> Deletes a Certificate from the specified Account. </summary>
         /// <param name="thumbprintAlgorithm"> The algorithm used to derive the thumbprint parameter. This must be sha1. </param>
         /// <param name="thumbprint"> The thumbprint of the Certificate to be deleted. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call DeleteAsync with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = await client.DeleteAsync("<thumbprintAlgorithm>", "<thumbprint>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call DeleteAsync with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.DeleteAsync("<thumbprintAlgorithm>", "<thumbprint>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> You cannot delete a Certificate if a resource (Pool or Compute Node) is using it. Before you can delete a Certificate, you must therefore make sure that the Certificate is not associated with any existing Pools, the Certificate is not installed on any Nodes (even if you remove a Certificate from a Pool, it is not removed from existing Compute Nodes in that Pool until they restart), and no running Tasks depend on the Certificate. If you try to delete a Certificate that is in use, the deletion fails. The Certificate status changes to deleteFailed. You can use Cancel Delete Certificate to set the status back to active if you decide that you want to continue using the Certificate. </remarks>
         public virtual async Task<Response> DeleteAsync(string thumbprintAlgorithm, string thumbprint, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(thumbprintAlgorithm, nameof(thumbprintAlgorithm));
@@ -301,34 +353,37 @@ namespace Azure.Compute.Batch
             }
         }
 
-        /// <summary> You cannot delete a Certificate if a resource (Pool or Compute Node) is using it. Before you can delete a Certificate, you must therefore make sure that the Certificate is not associated with any existing Pools, the Certificate is not installed on any Nodes (even if you remove a Certificate from a Pool, it is not removed from existing Compute Nodes in that Pool until they restart), and no running Tasks depend on the Certificate. If you try to delete a Certificate that is in use, the deletion fails. The Certificate status changes to deleteFailed. You can use Cancel Delete Certificate to set the status back to active if you decide that you want to continue using the Certificate. </summary>
+        /// <summary> Deletes a Certificate from the specified Account. </summary>
         /// <param name="thumbprintAlgorithm"> The algorithm used to derive the thumbprint parameter. This must be sha1. </param>
         /// <param name="thumbprint"> The thumbprint of the Certificate to be deleted. </param>
         /// <param name="timeout"> The maximum time that the server can spend processing the request, in seconds. The default is 30 seconds. </param>
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
-        /// <remarks>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
-        /// }
-        /// </code>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. </returns>
+        /// <example>
+        /// This sample shows how to call Delete with required parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
         /// 
-        /// </remarks>
+        /// Response response = client.Delete("<thumbprintAlgorithm>", "<thumbprint>");
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// This sample shows how to call Delete with all parameters.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.Delete("<thumbprintAlgorithm>", "<thumbprint>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// Console.WriteLine(response.Status);
+        /// ]]></code>
+        /// </example>
+        /// <remarks> You cannot delete a Certificate if a resource (Pool or Compute Node) is using it. Before you can delete a Certificate, you must therefore make sure that the Certificate is not associated with any existing Pools, the Certificate is not installed on any Nodes (even if you remove a Certificate from a Pool, it is not removed from existing Compute Nodes in that Pool until they restart), and no running Tasks depend on the Certificate. If you try to delete a Certificate that is in use, the deletion fails. The Certificate status changes to deleteFailed. You can use Cancel Delete Certificate to set the status back to active if you decide that you want to continue using the Certificate. </remarks>
         public virtual Response Delete(string thumbprintAlgorithm, string thumbprint, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
             Argument.AssertNotNullOrEmpty(thumbprintAlgorithm, nameof(thumbprintAlgorithm));
@@ -356,45 +411,69 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetCertificateAsync with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetCertificateAsync("<thumbprintAlgorithm>", "<thumbprint>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetCertificateAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = await client.GetCertificateAsync("<thumbprintAlgorithm>", "<thumbprint>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("thumbprint").ToString());
+        /// Console.WriteLine(result.GetProperty("thumbprintAlgorithm").ToString());
+        /// Console.WriteLine(result.GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("publicData").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("value").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Certificate</c>:
         /// <code>{
-        ///   thumbprint: string,
-        ///   thumbprintAlgorithm: string,
-        ///   url: string,
-        ///   state: CertificateState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: CertificateState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   publicData: string,
+        ///   thumbprint: string, # Optional. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits.
+        ///   thumbprintAlgorithm: string, # Optional. The algorithm used to derive the thumbprint.
+        ///   url: string, # Optional. The URL of the Certificate.
+        ///   state: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. The state of the Certificate.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Certificate entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. This property is not set if the Certificate is in its initial active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Certificate is in its initial Active state.
+        ///   publicData: string, # Optional. The public part of the Certificate as a base-64 encoded .cer file.
         ///   deleteCertificateError: {
-        ///     code: string,
-        ///     message: string,
+        ///     code: string, # Optional. An identifier for the Certificate deletion error. Codes are invariant and are intended to be consumed programmatically.
+        ///     message: string, # Optional. A message describing the Certificate deletion error, intended to be suitable for display in a user interface.
         ///     values: [
         ///       {
-        ///         name: string,
-        ///         value: string
+        ///         name: string, # Optional. The name in the name-value pair.
+        ///         value: string, # Optional. The value in the name-value pair.
         ///       }
-        ///     ]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     ], # Optional. This list includes details such as the active Pools and Compute Nodes referencing this Certificate. However, if a large number of resources reference the Certificate, the list contains only about the first hundred.
+        ///   }, # Optional. This property is set only if the Certificate is in the DeleteFailed state.
         /// }
         /// </code>
         /// 
@@ -426,45 +505,69 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
         /// <exception cref="ArgumentNullException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is null. </exception>
         /// <exception cref="ArgumentException"> <paramref name="thumbprintAlgorithm"/> or <paramref name="thumbprint"/> is an empty string, and was expected to be non-empty. </exception>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The response returned from the service. Details of the response body schema are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetCertificate with required parameters and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetCertificate("<thumbprintAlgorithm>", "<thumbprint>");
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.ToString());
+        /// ]]></code>
+        /// This sample shows how to call GetCertificate with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// Response response = client.GetCertificate("<thumbprintAlgorithm>", "<thumbprint>", "<select>", 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow);
+        /// 
+        /// JsonElement result = JsonDocument.Parse(response.ContentStream).RootElement;
+        /// Console.WriteLine(result.GetProperty("thumbprint").ToString());
+        /// Console.WriteLine(result.GetProperty("thumbprintAlgorithm").ToString());
+        /// Console.WriteLine(result.GetProperty("url").ToString());
+        /// Console.WriteLine(result.GetProperty("state").ToString());
+        /// Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("previousState").ToString());
+        /// Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        /// Console.WriteLine(result.GetProperty("publicData").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("code").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("message").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("name").ToString());
+        /// Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("value").ToString());
+        /// ]]></code>
+        /// </example>
         /// <remarks>
-        /// Schema for <c>Response Body</c>:
+        /// Below is the JSON schema for the response payload.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>Certificate</c>:
         /// <code>{
-        ///   thumbprint: string,
-        ///   thumbprintAlgorithm: string,
-        ///   url: string,
-        ///   state: CertificateState,
-        ///   stateTransitionTime: string (ISO 8601 Format),
-        ///   previousState: CertificateState,
-        ///   previousStateTransitionTime: string (ISO 8601 Format),
-        ///   publicData: string,
+        ///   thumbprint: string, # Optional. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits.
+        ///   thumbprintAlgorithm: string, # Optional. The algorithm used to derive the thumbprint.
+        ///   url: string, # Optional. The URL of the Certificate.
+        ///   state: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. The state of the Certificate.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Certificate entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. This property is not set if the Certificate is in its initial active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Certificate is in its initial Active state.
+        ///   publicData: string, # Optional. The public part of the Certificate as a base-64 encoded .cer file.
         ///   deleteCertificateError: {
-        ///     code: string,
-        ///     message: string,
+        ///     code: string, # Optional. An identifier for the Certificate deletion error. Codes are invariant and are intended to be consumed programmatically.
+        ///     message: string, # Optional. A message describing the Certificate deletion error, intended to be suitable for display in a user interface.
         ///     values: [
         ///       {
-        ///         name: string,
-        ///         value: string
+        ///         name: string, # Optional. The name in the name-value pair.
+        ///         value: string, # Optional. The value in the name-value pair.
         ///       }
-        ///     ]
-        ///   }
-        /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
-        /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///     ], # Optional. This list includes details such as the active Pools and Compute Nodes referencing this Certificate. However, if a large number of resources reference the Certificate, the list contains only about the first hundred.
+        ///   }, # Optional. This property is set only if the Certificate is in the DeleteFailed state.
         /// }
         /// </code>
         /// 
@@ -496,55 +599,81 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       thumbprint: string,
-        ///       thumbprintAlgorithm: string,
-        ///       url: string,
-        ///       state: CertificateState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: CertificateState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       publicData: string,
-        ///       deleteCertificateError: {
-        ///         code: string,
-        ///         message: string,
-        ///         values: [
-        ///           {
-        ///             name: string,
-        ///             value: string
-        ///           }
-        ///         ]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="AsyncPageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetCertificatesAsync and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetCertificatesAsync())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetCertificatesAsync with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// await foreach (var data in client.GetCertificatesAsync("<filter>", "<select>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("thumbprint").ToString());
+        ///     Console.WriteLine(result.GetProperty("thumbprintAlgorithm").ToString());
+        ///     Console.WriteLine(result.GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousState").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("publicData").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("value").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>CertificateListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   thumbprint: string, # Optional. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits.
+        ///   thumbprintAlgorithm: string, # Optional. The algorithm used to derive the thumbprint.
+        ///   url: string, # Optional. The URL of the Certificate.
+        ///   state: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. The state of the Certificate.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Certificate entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. This property is not set if the Certificate is in its initial active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Certificate is in its initial Active state.
+        ///   publicData: string, # Optional. The public part of the Certificate as a base-64 encoded .cer file.
+        ///   deleteCertificateError: {
+        ///     code: string, # Optional. An identifier for the Certificate deletion error. Codes are invariant and are intended to be consumed programmatically.
+        ///     message: string, # Optional. A message describing the Certificate deletion error, intended to be suitable for display in a user interface.
+        ///     values: [
+        ///       {
+        ///         name: string, # Optional. The name in the name-value pair.
+        ///         value: string, # Optional. The value in the name-value pair.
+        ///       }
+        ///     ], # Optional. This list includes details such as the active Pools and Compute Nodes referencing this Certificate. However, if a large number of resources reference the Certificate, the list contains only about the first hundred.
+        ///   }, # Optional. This property is set only if the Certificate is in the DeleteFailed state.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual AsyncPageable<BinaryData> GetCertificatesAsync(string filter = null, string select = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, "CertificateClient.GetCertificates");
+            return GetCertificatesImplementationAsync("CertificateClient.GetCertificates", filter, select, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private AsyncPageable<BinaryData> GetCertificatesImplementationAsync(string diagnosticsScopeName, string filter, string select, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreateAsyncPageable(CreateEnumerableAsync, ClientDiagnostics, diagnosticsScopeName);
             async IAsyncEnumerable<Page<BinaryData>> CreateEnumerableAsync(string nextLink, int? pageSizeHint, [EnumeratorCancellation] CancellationToken cancellationToken = default)
             {
                 do
@@ -567,55 +696,81 @@ namespace Azure.Compute.Batch
         /// <param name="clientRequestId"> The caller-generated request identity, in the form of a GUID with no decoration such as curly braces, e.g. 9C4D50EE-2D56-4CD3-8152-34347DC9F2B0. </param>
         /// <param name="returnClientRequestId"> Whether the server should return the client-request-id in the response. </param>
         /// <param name="ocpDate"> The time the request was issued. Client libraries typically set this to the current system clock time; set it explicitly if you are calling the REST API directly. </param>
-        /// <param name="context"> The request context, which can override default behaviors on the request on a per-call basis. </param>
-        /// <remarks>
-        /// Schema for <c>Response Body</c>:
-        /// <code>{
-        ///   value: [
-        ///     {
-        ///       thumbprint: string,
-        ///       thumbprintAlgorithm: string,
-        ///       url: string,
-        ///       state: CertificateState,
-        ///       stateTransitionTime: string (ISO 8601 Format),
-        ///       previousState: CertificateState,
-        ///       previousStateTransitionTime: string (ISO 8601 Format),
-        ///       publicData: string,
-        ///       deleteCertificateError: {
-        ///         code: string,
-        ///         message: string,
-        ///         values: [
-        ///           {
-        ///             name: string,
-        ///             value: string
-        ///           }
-        ///         ]
-        ///       }
-        ///     }
-        ///   ],
-        ///   odata.nextLink: string
+        /// <param name="context"> The request context, which can override default behaviors of the client pipeline on a per-call basis. </param>
+        /// <exception cref="RequestFailedException"> Service returned a non-success status code. </exception>
+        /// <returns> The <see cref="Pageable{T}"/> from the service containing a list of <see cref="BinaryData"/> objects. Details of the body schema for each item in the collection are in the Remarks section below. </returns>
+        /// <example>
+        /// This sample shows how to call GetCertificates and parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetCertificates())
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.ToString());
         /// }
-        /// </code>
-        /// Schema for <c>Response Error</c>:
+        /// ]]></code>
+        /// This sample shows how to call GetCertificates with all parameters, and how to parse the result.
+        /// <code><![CDATA[
+        /// var credential = new DefaultAzureCredential();
+        /// var client = new BatchClient(credential).GetCertificateClientClient("<batchUrl>", <2022-01-01.15.0>);
+        /// 
+        /// foreach (var data in client.GetCertificates("<filter>", "<select>", 1234, 1234, Guid.NewGuid(), true, DateTimeOffset.UtcNow))
+        /// {
+        ///     JsonElement result = JsonDocument.Parse(data.ToStream()).RootElement;
+        ///     Console.WriteLine(result.GetProperty("thumbprint").ToString());
+        ///     Console.WriteLine(result.GetProperty("thumbprintAlgorithm").ToString());
+        ///     Console.WriteLine(result.GetProperty("url").ToString());
+        ///     Console.WriteLine(result.GetProperty("state").ToString());
+        ///     Console.WriteLine(result.GetProperty("stateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousState").ToString());
+        ///     Console.WriteLine(result.GetProperty("previousStateTransitionTime").ToString());
+        ///     Console.WriteLine(result.GetProperty("publicData").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("code").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("message").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("name").ToString());
+        ///     Console.WriteLine(result.GetProperty("deleteCertificateError").GetProperty("values")[0].GetProperty("value").ToString());
+        /// }
+        /// ]]></code>
+        /// </example>
+        /// <remarks>
+        /// Below is the JSON schema for one item in the pageable response.
+        /// 
+        /// Response Body:
+        /// 
+        /// Schema for <c>CertificateListResultValue</c>:
         /// <code>{
-        ///   code: string,
-        ///   message: {
-        ///     lang: string,
-        ///     value: string
-        ///   },
-        ///   values: [
-        ///     {
-        ///       key: string,
-        ///       value: string
-        ///     }
-        ///   ]
+        ///   thumbprint: string, # Optional. The X.509 thumbprint of the Certificate. This is a sequence of up to 40 hex digits.
+        ///   thumbprintAlgorithm: string, # Optional. The algorithm used to derive the thumbprint.
+        ///   url: string, # Optional. The URL of the Certificate.
+        ///   state: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. The state of the Certificate.
+        ///   stateTransitionTime: string (ISO 8601 Format), # Optional. The time at which the Certificate entered its current state.
+        ///   previousState: &quot;active&quot; | &quot;deleting&quot; | &quot;deletefailed&quot;, # Optional. This property is not set if the Certificate is in its initial active state.
+        ///   previousStateTransitionTime: string (ISO 8601 Format), # Optional. This property is not set if the Certificate is in its initial Active state.
+        ///   publicData: string, # Optional. The public part of the Certificate as a base-64 encoded .cer file.
+        ///   deleteCertificateError: {
+        ///     code: string, # Optional. An identifier for the Certificate deletion error. Codes are invariant and are intended to be consumed programmatically.
+        ///     message: string, # Optional. A message describing the Certificate deletion error, intended to be suitable for display in a user interface.
+        ///     values: [
+        ///       {
+        ///         name: string, # Optional. The name in the name-value pair.
+        ///         value: string, # Optional. The value in the name-value pair.
+        ///       }
+        ///     ], # Optional. This list includes details such as the active Pools and Compute Nodes referencing this Certificate. However, if a large number of resources reference the Certificate, the list contains only about the first hundred.
+        ///   }, # Optional. This property is set only if the Certificate is in the DeleteFailed state.
         /// }
         /// </code>
         /// 
         /// </remarks>
         public virtual Pageable<BinaryData> GetCertificates(string filter = null, string select = null, int? maxResults = null, int? timeout = null, Guid? clientRequestId = null, bool? returnClientRequestId = null, DateTimeOffset? ocpDate = null, RequestContext context = null)
         {
-            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, "CertificateClient.GetCertificates");
+            return GetCertificatesImplementation("CertificateClient.GetCertificates", filter, select, maxResults, timeout, clientRequestId, returnClientRequestId, ocpDate, context);
+        }
+
+        private Pageable<BinaryData> GetCertificatesImplementation(string diagnosticsScopeName, string filter, string select, int? maxResults, int? timeout, Guid? clientRequestId, bool? returnClientRequestId, DateTimeOffset? ocpDate, RequestContext context)
+        {
+            return PageableHelpers.CreatePageable(CreateEnumerable, ClientDiagnostics, diagnosticsScopeName);
             IEnumerable<Page<BinaryData>> CreateEnumerable(string nextLink, int? pageSizeHint)
             {
                 do
